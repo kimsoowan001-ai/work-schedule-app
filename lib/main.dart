@@ -176,7 +176,7 @@ class MainScheduleScreen extends StatefulWidget {
 }
 
 class _MainScheduleScreenState extends State<MainScheduleScreen> {
-  String _notice = "📢 근무 및 휴가 신청은 일정에 맞춰 사전 등록 바랍니다.";
+  String _notice = "📢 근무 및 휴가 신청은 사전 등록 바랍니다. 지난 날짜는 실제 근무/연장 확인용으로 기록 가능합니다.";
   bool _notificationEnabled = false;
 
   DateTime _currentMonth = DateTime.now();
@@ -193,6 +193,14 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
   String _formatDateKey(DateTime d) {
     return "${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}";
+  }
+
+  // 오늘 날짜인지/지난 날짜인지 판별 (시간 제외)
+  bool _isPastDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(date.year, date.month, date.day);
+    return target.isBefore(today);
   }
 
   void _toggleNotification(bool enable) async {
@@ -256,7 +264,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 30분 단위 시간 옵션 목록 (0시간부터 8시간까지)
   List<String> _generateTimeOptions() {
     List<String> options = [];
     for (int i = 0; i <= 16; i++) {
@@ -275,9 +282,106 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     return options;
   }
 
-  // 근무/휴가 신청 다이얼로그 (평일/주말 분기)
+  // --- 1. 지난 날짜 근무/연장 확인용 기록 다이얼로그 ---
+  void _showPastWorkRecordDialog() {
+    if (_selectedDate == null) return;
+    final dateKey = _formatDateKey(_selectedDate!);
+    String shiftTime = "오전 근무";
+    final overtimeController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Row(
+            children: [
+              const Icon(Icons.history, color: Colors.blueGrey),
+              const SizedBox(width: 8),
+              Expanded(child: Text('지난 근무 확인 및 기록 ($dateKey)', style: const TextStyle(fontSize: 17))),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    '⚠️ 지난 날짜는 사전 신청이 불가능하며, 실제 근무(오전/오후) 및 연장근무 기록용으로만 작성됩니다.',
+                    style: TextStyle(fontSize: 12, color: Colors.brown),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: shiftTime,
+                  decoration: const InputDecoration(
+                    labelText: '근무 시간대 선택',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.access_time),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: "오전 근무", child: Text("오전 근무")),
+                    DropdownMenuItem(value: "오후 근무", child: Text("오후 근무")),
+                    DropdownMenuItem(value: "종일/주간 근무", child: Text("종일/주간 근무")),
+                    DropdownMenuItem(value: "야간 근무", child: Text("야간 근무")),
+                    DropdownMenuItem(value: "휴무", child: Text("휴무")),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) setDialogState(() => shiftTime = val);
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: overtimeController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: '연장 근무 및 비고 확인용 메모',
+                    hintText: '예: 연장근무 2시간 진행 (18:00~20:00) / 특이사항 없음',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.edit_note),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+            ElevatedButton(
+              onPressed: () {
+                final note = overtimeController.text.trim();
+                final entry = "[${widget.userName}(${widget.employeeId})] (실제기록) $shiftTime ${note.isNotEmpty ? ' | 연장/메모: $note' : ''}";
+
+                setState(() {
+                  _scheduleMap.putIfAbsent(dateKey, () => []).add(entry);
+                });
+
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('지난 근무/연장 확인 기록이 저장되었습니다.')),
+                );
+              },
+              child: const Text('기록 저장'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- 2. 오늘 및 미래 날짜 신청 다이얼로그 (평일/주말) ---
   void _showAddWorkDialog() {
     if (_selectedDate == null) return;
+
+    // 만약 지난 날짜라면 안내 후 지난 근무 기록창으로 연결
+    if (_isPastDate(_selectedDate!)) {
+      _showPastWorkRecordDialog();
+      return;
+    }
 
     final isWeekend = _selectedDate!.weekday == DateTime.saturday || _selectedDate!.weekday == DateTime.sunday;
     final dateKey = _formatDateKey(_selectedDate!);
@@ -346,7 +450,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     } else {
       // 평일 다이얼로그 (연차, 체력단련, 가족사랑, 건강검진, 기타)
       String selectedCategory = "연차";
-      String selectedLeaveTime = "8시간"; // 연차 기본값 8시간
+      String selectedLeaveTime = "8시간";
       final timeOptions = _generateTimeOptions();
       final customNoteController = TextEditingController();
 
@@ -374,8 +478,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     },
                   ),
                   const SizedBox(height: 14),
-
-                  // 1. 연차 선택 시: 0시간 ~ 8시간 선택 드롭다운 활성화
                   if (selectedCategory == "연차") ...[
                     DropdownButtonFormField<String>(
                       value: selectedLeaveTime,
@@ -393,8 +495,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     ),
                     const SizedBox(height: 14),
                   ],
-
-                  // 2. 기타 선택 시: 직접 사유 적는 텍스트창 활성화
                   if (selectedCategory == "기타") ...[
                     TextField(
                       controller: customNoteController,
@@ -407,8 +507,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     ),
                     const SizedBox(height: 14),
                   ],
-
-                  // 공통 추가 메모
                   if (selectedCategory != "기타")
                     TextField(
                       controller: customNoteController,
@@ -475,6 +573,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   Widget build(BuildContext context) {
     final selectedKey = _selectedDate != null ? _formatDateKey(_selectedDate!) : '';
     final dayList = _scheduleMap[selectedKey] ?? [];
+    final bool isPast = _selectedDate != null ? _isPastDate(_selectedDate!) : false;
 
     return Scaffold(
       appBar: AppBar(
@@ -497,7 +596,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 공지사항 카드 (관리자만 수정)
+            // 공지사항 카드
             Card(
               color: Colors.amber.shade50,
               elevation: 2,
@@ -533,7 +632,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             ),
             const SizedBox(height: 12),
 
-            // 관리자 전용 브라우저 알림 스위치
+            // 관리자 전용 알림
             if (widget.isAdmin) ...[
               Card(
                 color: Colors.blue.shade50,
@@ -594,16 +693,31 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          '📅 $selectedKey 신청 현황',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        Row(
+                          children: [
+                            Text(
+                              '📅 $selectedKey 현황',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                            if (isPast)
+                              Container(
+                                margin: const EdgeInsets.only(left: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade200,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text('지난 날짜', style: TextStyle(fontSize: 11, color: Colors.black54)),
+                              ),
+                          ],
                         ),
+                        // 지난 날짜면 '지난 근무/연장 기록' 버튼, 오늘/미래면 '신청' 버튼
                         ElevatedButton.icon(
-                          onPressed: _showAddWorkDialog,
-                          icon: const Icon(Icons.add_task, size: 18),
-                          label: const Text('근무/휴가 신청'),
+                          onPressed: isPast ? _showPastWorkRecordDialog : _showAddWorkDialog,
+                          icon: Icon(isPast ? Icons.edit_calendar : Icons.add_task, size: 18),
+                          label: Text(isPast ? '지난 근무/연장 확인 기록' : '근무/휴가 신청'),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blueAccent,
+                            backgroundColor: isPast ? Colors.blueGrey : Colors.blueAccent,
                             foregroundColor: Colors.white,
                           ),
                         ),
@@ -614,7 +728,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 16.0),
                         child: Center(
-                          child: Text('신청된 내역이 없습니다.', style: TextStyle(color: Colors.grey)),
+                          child: Text('등록된 내역이 없습니다.', style: TextStyle(color: Colors.grey)),
                         ),
                       )
                     else
@@ -624,9 +738,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         itemCount: dayList.length,
                         itemBuilder: (ctx, idx) => ListTile(
                           contentPadding: EdgeInsets.zero,
-                          leading: const CircleAvatar(
-                            backgroundColor: Colors.blueAccent,
-                            child: Icon(Icons.event_note, color: Colors.white, size: 18),
+                          leading: CircleAvatar(
+                            backgroundColor: dayList[idx].contains("(실제기록)") ? Colors.blueGrey : Colors.blueAccent,
+                            child: Icon(dayList[idx].contains("(실제기록)") ? Icons.history : Icons.event_note, color: Colors.white, size: 18),
                           ),
                           title: Text(dayList[idx], style: const TextStyle(fontWeight: FontWeight.w500)),
                         ),
@@ -694,6 +808,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   _selectedDate!.month == cellDate.month &&
                   _selectedDate!.day == cellDate.day;
               final hasData = (_scheduleMap[cellKey]?.isNotEmpty ?? false);
+              final isPast = _isPastDate(cellDate);
 
               return InkWell(
                 onTap: () => setState(() => _selectedDate = cellDate),
@@ -701,8 +816,12 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 child: Container(
                   margin: const EdgeInsets.all(2),
                   decoration: BoxDecoration(
-                    color: isSelected ? Colors.blueAccent.withOpacity(0.2) : Colors.transparent,
-                    border: isSelected ? Border.all(color: Colors.blueAccent, width: 1.5) : null,
+                    color: isSelected
+                        ? (isPast ? Colors.blueGrey.withOpacity(0.2) : Colors.blueAccent.withOpacity(0.2))
+                        : (isPast ? Colors.grey.shade100 : Colors.transparent),
+                    border: isSelected
+                        ? Border.all(color: isPast ? Colors.blueGrey : Colors.blueAccent, width: 1.5)
+                        : null,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Column(
@@ -712,7 +831,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         '$dayNum',
                         style: TextStyle(
                           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          color: cellDate.weekday == 7 ? Colors.red : (cellDate.weekday == 6 ? Colors.blue : Colors.black87),
+                          color: isPast
+                              ? Colors.grey.shade500
+                              : (cellDate.weekday == 7 ? Colors.red : (cellDate.weekday == 6 ? Colors.blue : Colors.black87)),
                         ),
                       ),
                       if (hasData)
@@ -720,8 +841,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                           margin: const EdgeInsets.only(top: 3),
                           width: 6,
                           height: 6,
-                          decoration: const BoxDecoration(
-                            color: Colors.orange,
+                          decoration: BoxDecoration(
+                            color: isPast ? Colors.blueGrey : Colors.orange,
                             shape: BoxShape.circle,
                           ),
                         ),
