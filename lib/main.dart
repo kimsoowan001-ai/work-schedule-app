@@ -24,7 +24,7 @@ class WorkScheduleApp extends StatelessWidget {
   }
 }
 
-// 1. KT&G 스플래시 화면
+// 1. KT&G 스플래시 인트로 화면
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -36,7 +36,7 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(milliseconds: 1800), () {
+    Future.delayed(const Duration(milliseconds: 1500), () {
       if (mounted) {
         Navigator.pushReplacement(
           context,
@@ -59,7 +59,7 @@ class _SplashScreenState extends State<SplashScreen> {
               width: 200,
               errorBuilder: (context, error, stackTrace) => const Text(
                 'KT&G',
-                style: TextStyle(fontSize: 48, fontWeight: FontWeight.w900, letterSpacing: 2, color: Color(0xFF333333)),
+                style: TextStyle(fontSize: 44, fontWeight: FontWeight.w900, color: Color(0xFF333333)),
               ),
             ),
             const SizedBox(height: 24),
@@ -67,10 +67,10 @@ class _SplashScreenState extends State<SplashScreen> {
               '근무 스케줄 관리 시스템',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B365D), letterSpacing: 1.2),
             ),
-            const SizedBox(height: 36),
+            const SizedBox(height: 32),
             const SizedBox(
-              width: 32,
-              height: 32,
+              width: 30,
+              height: 30,
               child: CircularProgressIndicator(strokeWidth: 3, color: Color(0xFFE35205)),
             ),
           ],
@@ -155,11 +155,7 @@ class _LoginScreenState extends State<LoginScreen> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
-                  blurRadius: 16,
-                  offset: const Offset(0, 4),
-                ),
+                BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 16, offset: const Offset(0, 4)),
               ],
             ),
             child: Column(
@@ -242,7 +238,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 3. 메인 스케줄 화면 (2주 규칙 & 중복 방지)
+// 3. 메인 스케줄 화면
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -742,10 +738,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     });
                     saveAllData();
 
-                    _sendWebNotification(
-                      "⚡ [승인 요청] 2주 이내 주말 근무",
-                      "${widget.userName}님이 $dateKey 주말 설정을 승인 요청했습니다.",
-                    );
+                    _sendWebNotification("⚡ [승인 요청] 2주 이내 주말 근무", "${widget.userName}님이 $dateKey 주말 설정을 승인 요청했습니다.");
 
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -789,7 +782,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             title: Text('근무/휴가 신청 ($dateKey)'),
             content: SingleChildScrollView(
               child: Column(
-                mainAxisSize: MainAxisSize.min, // 오타 수정 완료
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   if (requiresApproval)
                     Container(
@@ -935,10 +928,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     });
                     saveAllData();
 
-                    _sendWebNotification(
-                      "⚡ [승인 요청] 2주 이내 휴가/근무 신청",
-                      "${widget.userName}님이 $dateKey '$details' 건에 대한 승인을 요청했습니다.",
-                    );
+                    _sendWebNotification("⚡ [승인 요청] 2주 이내 휴가/근무", "${widget.userName}님이 $dateKey '$details' 건에 대한 승인을 요청했습니다.");
 
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -1508,7 +1498,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   }
 }
 
-// 4. 결재함
+// 4. [관리자 전용] 결재함
 class AdminApprovalScreen extends StatefulWidget {
   final List<Map<String, String>> approvalRequests;
   final Map<String, List<Map<String, String>>> scheduleMap;
@@ -1663,7 +1653,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
   }
 }
 
-// 5. 사진 뷰어
+// 5. 근무표 사진 뷰어
 class RosterImageScreen extends StatefulWidget {
   final bool isAdmin;
   final String? currentImageBase64;
