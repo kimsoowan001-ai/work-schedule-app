@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'dart:html' as html; // 웹 전용 알림 API 사용
+import 'dart:html' as html; // 웹 전용 백그라운드 브라우저 알림 API
 
 void main() {
   runApp(const WorkScheduleApp());
@@ -22,7 +22,7 @@ class WorkScheduleApp extends StatelessWidget {
   }
 }
 
-// 1. 로그인 화면
+// 1. 로그인 화면 (사번 + 이름 + 관리자 전환/인증코드)
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -36,20 +36,23 @@ class _LoginScreenState extends State<LoginScreen> {
   final _adminCodeController = TextEditingController();
   bool _isAdminMode = false;
 
-  // 임시 관리자 비밀코드 (원하는 코드로 변경 가능)
-  static const String correctAdminCode = "admin1234";
+  // 관리자 인증 비밀번호
+  static const String correctAdminCode = "ktngsj";
 
   void _login() {
-    if (_nameController.text.trim().isEmpty) {
+    final empId = _employeeIdController.text.trim();
+    final name = _nameController.text.trim();
+
+    if (empId.isEmpty || name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('이름을 입력해주세요.')),
+        const SnackBar(content: Text('사번과 이름을 모두 입력해주세요.')),
       );
       return;
     }
 
-    if (_isAdminMode && _adminCodeController.text != correctAdminCode) {
+    if (_isAdminMode && _adminCodeController.text.trim() != correctAdminCode) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('관리자 코드가 일치하지 않습니다.')),
+        const SnackBar(content: Text('관리자 인증 코드가 올바르지 않습니다.')),
       );
       return;
     }
@@ -57,8 +60,9 @@ class _LoginScreenState extends State<LoginScreen> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (context) => MainDashboard(
-          userName: _nameController.text.trim(),
+        builder: (context) => MainScheduleScreen(
+          employeeId: empId,
+          userName: name,
           isAdmin: _isAdminMode,
         ),
       ),
@@ -68,55 +72,86 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('근무 관리 시스템 로그인')),
+      backgroundColor: const Color(0xFFF3F6FA),
       body: Center(
-        child: Container(
-          width: 380,
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10)],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: '이름',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.person),
-                ),
-              ),
-              const SizedBox(height: 16),
-              SwitchListTile(
-                title: const Text('관리자로 로그인'),
-                value: _isAdminMode,
-                onChanged: (val) => setState(() => _isAdminMode = val),
-              ),
-              if (_isAdminMode) ...[
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _adminCodeController,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: '관리자 인증 코드',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.lock),
-                  ),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 400),
+            padding: const EdgeInsets.all(28.0),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
                 ),
               ],
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: ElevatedButton(
-                  onPressed: _login,
-                  child: const Text('로그인', style: TextStyle(fontSize: 16)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Icon(Icons.calendar_month_rounded, size: 56, color: Colors.blueAccent),
+                const SizedBox(height: 12),
+                const Text(
+                  '근무 스케줄 관리',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 ),
-              ),
-            ],
+                const SizedBox(height: 24),
+                TextField(
+                  controller: _employeeIdController,
+                  decoration: const InputDecoration(
+                    labelText: '사번 (Employee ID)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.badge_outlined),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(
+                    labelText: '성명 (Name)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.person_outline),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('관리자 모드로 로그인', style: TextStyle(fontWeight: FontWeight.bold)),
+                  value: _isAdminMode,
+                  onChanged: (val) => setState(() => _isAdminMode = val),
+                ),
+                if (_isAdminMode) ...[
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _adminCodeController,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: '관리자 비밀코드',
+                      hintText: 'admin1234',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.security),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: _login,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: const Text('로그인', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -124,39 +159,67 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 2. 메인 대시보드 (공지사항 및 알림 제어)
-class MainDashboard extends StatefulWidget {
+// 2. 메인 스케줄 + 캘린더 + 공지사항 + 알림 화면
+class MainScheduleScreen extends StatefulWidget {
+  final String employeeId;
   final String userName;
   final bool isAdmin;
 
-  const MainDashboard({super.key, required this.userName, required this.isAdmin});
+  const MainScheduleScreen({
+    super.key,
+    required this.employeeId,
+    required this.userName,
+    required this.isAdmin,
+  });
 
   @override
-  State<MainDashboard> createState() => _MainDashboardState();
+  State<MainScheduleScreen> createState() => _MainScheduleScreenState();
 }
 
-class _MainDashboardState extends State<MainDashboard> {
-  String _notice = "📢 등록된 공지사항이 없습니다.";
+class _MainScheduleScreenState extends State<MainScheduleScreen> {
+  // 공지사항 기본값
+  String _notice = "📢 이번 달 근무 스케줄은 매주 금요일까지 신청해 주시기 바랍니다.";
   bool _notificationEnabled = false;
 
-  // 브라우저 백그라운드 푸시 알림 권한 요청 및 발송 함수
-  void _requestNotificationPermission() async {
-    if (html.Notification.permission == 'granted') {
-      setState(() => _notificationEnabled = true);
-      _sendWebNotification("알림 설정 완료", "관리자 근무 등록 알림이 활성화되었습니다.");
-    } else {
-      final permission = await html.Notification.requestPermission();
-      if (permission == 'granted') {
+  // 캘린더 날짜 제어
+  DateTime _currentMonth = DateTime.now();
+  DateTime? _selectedDate;
+
+  // 날짜별 근무 일정 저장 (예: "2026-08-31": ["김철수: 주간근무", "이영희: 야간근무"])
+  final Map<String, List<String>> _scheduleMap = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedDate = DateTime.now();
+  }
+
+  String _formatDateKey(DateTime d) {
+    return "${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}";
+  }
+
+  // 브라우저 백그라운드 푸시 알림 권한 및 발송
+  void _toggleNotification(bool enable) async {
+    if (enable) {
+      if (html.Notification.permission == 'granted') {
         setState(() => _notificationEnabled = true);
-        _sendWebNotification("알림 설정 완료", "새로운 근무 신청 시 알림을 받습니다.");
+        _sendWebNotification("🔔 알림 설정 완료", "근무 등록 알림이 활성화되었습니다. 화면을 나가도 수신됩니다.");
       } else {
-        setState(() => _notificationEnabled = false);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('브라우저 알림 권한이 거부되었습니다.')),
-          );
+        final permission = await html.Notification.requestPermission();
+        if (permission == 'granted') {
+          setState(() => _notificationEnabled = true);
+          _sendWebNotification("🔔 알림 설정 완료", "근무 등록 알림이 활성화되었습니다.");
+        } else {
+          setState(() => _notificationEnabled = false);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('브라우저 알림 권한이 차단되었습니다. 브라우저 설정에서 허용해주세요.')),
+            );
+          }
         }
       }
+    } else {
+      setState(() => _notificationEnabled = false);
     }
   }
 
@@ -166,32 +229,29 @@ class _MainDashboardState extends State<MainDashboard> {
     }
   }
 
-  // 공지사항 수정 다이얼로그 (관리자 전용)
+  // 관리자 전용 공지사항 수정 다이얼로그
   void _showEditNoticeDialog() {
     final controller = TextEditingController(text: _notice);
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('공지사항 작성/수정 (관리자 전용)'),
+      builder: (ctx) => AlertDialog(
+        title: const Text('📢 공지사항 작성/수정 (관리자 전용)'),
         content: TextField(
           controller: controller,
           maxLines: 4,
           decoration: const InputDecoration(
-            hintText: '공지할 내용을 입력하세요.',
+            hintText: '공지할 내용을 작성하세요.',
             border: OutlineInputBorder(),
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
           ElevatedButton(
             onPressed: () {
-              setState(() => _notice = controller.text);
-              Navigator.pop(context);
+              setState(() => _notice = controller.text.trim());
+              Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('공지사항이 업데이트되었습니다.')),
+                const SnackBar(content: Text('공지사항이 수정되었습니다.')),
               );
             },
             child: const Text('저장'),
@@ -201,43 +261,106 @@ class _MainDashboardState extends State<MainDashboard> {
     );
   }
 
-  // 사용자가 근무 신청을 등록했을 때 실행되는 예시 함수
-  void _simulateUserWorkRegistration() {
-    // 실제 환경에서는 DB Stream/WebSocket으로 수신
-    if (_notificationEnabled) {
-      _sendWebNotification(
-        "⚡ 새 근무 등록 알림",
-        "${widget.userName}님이 새로운 근무 일정을 등록했습니다.",
-      );
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('근무 사항이 등록되었습니다.')),
+  // 근무 등록 다이얼로그 (일반 사용자/관리자 공통)
+  void _showAddWorkDialog() {
+    if (_selectedDate == null) return;
+    String workType = "주간근무 (09:00 - 18:00)";
+    final noteController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('${_formatDateKey(_selectedDate!)} 근무 신청'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                value: workType,
+                decoration: const InputDecoration(labelText: '근무 구분', border: OutlineInputBorder()),
+                items: const [
+                  DropdownMenuItem(value: "주간근무 (09:00 - 18:00)", child: Text("주간 (09:00~18:00)")),
+                  DropdownMenuItem(value: "야간근무 (18:00 - 09:00)", child: Text("야간 (18:00~09:00)")),
+                  DropdownMenuItem(value: "휴무 (Day Off)", child: Text("휴무 (Off)")),
+                  DropdownMenuItem(value: "연차/휴가", child: Text("연차/휴가")),
+                ],
+                onChanged: (val) {
+                  if (val != null) setDialogState(() => workType = val);
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: noteController,
+                decoration: const InputDecoration(
+                  labelText: '메모/전달사항',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+            ElevatedButton(
+              onPressed: () {
+                final key = _formatDateKey(_selectedDate!);
+                final entry = "[${widget.userName}(${widget.employeeId})] $workType ${noteController.text.isNotEmpty ? '(${noteController.text})' : ''}";
+
+                setState(() {
+                  _scheduleMap.putIfAbsent(key, () => []).add(entry);
+                });
+
+                // 관리자가 알림을 켜두었다면 백그라운드 브라우저 알림 발송
+                if (_notificationEnabled) {
+                  _sendWebNotification(
+                    "⚡ 새 근무 신청 도착",
+                    "${widget.userName}님이 $key 일자에 '$workType' 일정을 등록했습니다.",
+                  );
+                }
+
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('근무 일정이 등록되었습니다.')),
+                );
+              },
+              child: const Text('등록'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final selectedKey = _selectedDate != null ? _formatDateKey(_selectedDate!) : '';
+    final dayList = _scheduleMap[selectedKey] ?? [];
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.isAdmin ? '관리자 대시보드' : '근무자 대시보드'),
+        title: Text('${widget.userName} (${widget.isAdmin ? "관리자" : "사원"})'),
+        backgroundColor: widget.isAdmin ? Colors.indigo : Colors.blueAccent,
+        foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
+            tooltip: '로그아웃',
             onPressed: () => Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (context) => const LoginScreen()),
             ),
-          )
+          ),
         ],
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
-        child: ListView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 공지사항 카드
+            // 1. 공지사항 카드 (관리자만 수정 아이콘 노출)
             Card(
               color: Colors.amber.shade50,
               elevation: 2,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
@@ -246,61 +369,231 @@ class _MainDashboardState extends State<MainDashboard> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          '📢 공지사항',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        const Row(
+                          children: [
+                            Icon(Icons.campaign, color: Colors.orange, size: 24),
+                            SizedBox(width: 8),
+                            Text('공지사항', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                          ],
                         ),
-                        // 관리자만 공지 수정 버튼 노출
                         if (widget.isAdmin)
                           IconButton(
                             icon: const Icon(Icons.edit, color: Colors.blueAccent),
-                            tooltip: '공지사항 수정',
+                            tooltip: '공지 수정 (관리자 전용)',
                             onPressed: _showEditNoticeDialog,
                           ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    Text(_notice, style: const TextStyle(fontSize: 15)),
+                    const SizedBox(height: 6),
+                    Text(_notice, style: const TextStyle(fontSize: 14, height: 1.4)),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
-            // 관리자 전용 알림 수신 설정 스위치
-            if (widget.isAdmin)
+            // 2. 관리자 전용: 백그라운드 웹 알림 스위치
+            if (widget.isAdmin) ...[
               Card(
                 color: Colors.blue.shade50,
+                elevation: 1,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 child: SwitchListTile(
-                  title: const Text(
-                    '근무 등록 백그라운드 알림 받기',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                  secondary: Icon(
+                    _notificationEnabled ? Icons.notifications_active : Icons.notifications_off,
+                    color: _notificationEnabled ? Colors.blueAccent : Colors.grey,
                   ),
-                  subtitle: const Text('화면을 나가거나 최소화해도 팝업 알림을 수신합니다.'),
-                  secondary: const Icon(Icons.notifications_active, color: Colors.blue),
+                  title: const Text('근무 등록 백그라운드 알림', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('창을 닫거나 다른 화면을 보고 있어도 실시간 푸시를 받습니다.'),
                   value: _notificationEnabled,
-                  onChanged: (val) {
-                    if (val) {
-                      _requestNotificationPermission();
-                    } else {
-                      setState(() => _notificationEnabled = false);
-                    }
-                  },
+                  onChanged: _toggleNotification,
                 ),
               ),
+              const SizedBox(height: 12),
+            ],
 
-            const SizedBox(height: 24),
-            // 근무 등록 액션 (시뮬레이션용)
-            Center(
-              child: ElevatedButton.icon(
-                onPressed: _simulateUserWorkRegistration,
-                icon: const Icon(Icons.send),
-                label: const Text('근무 사항 등록/제출'),
-                style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
+            // 3. 월 이동 헤더
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.chevron_left),
+                  onPressed: () => setState(() {
+                    _currentMonth = DateTime(_currentMonth.year, _currentMonth.month - 1, 1);
+                  }),
+                ),
+                Text(
+                  '${_currentMonth.year}년 ${_currentMonth.month}월',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.chevron_right),
+                  onPressed: () => setState(() {
+                    _currentMonth = DateTime(_currentMonth.year, _currentMonth.month + 1, 1);
+                  }),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            // 4. 근무 캘린더 그리드
+            _buildCalendarGrid(),
+
+            const SizedBox(height: 16),
+
+            // 5. 선택한 날짜의 근무 명단 리스트
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '📅 $selectedKey 근무 현황',
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: _showAddWorkDialog,
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('근무 등록'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blueAccent,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 24),
+                    if (dayList.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16.0),
+                        child: Center(
+                          child: Text('등록된 근무 일정이 없습니다.', style: TextStyle(color: Colors.grey)),
+                        ),
+                      )
+                    else
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: dayList.length,
+                        itemBuilder: (ctx, idx) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const CircleAvatar(
+                            backgroundColor: Colors.blueAccent,
+                            child: Icon(Icons.work, color: Colors.white, size: 18),
+                          ),
+                          title: Text(dayList[idx]),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // 캘린더 위젯 생성
+  Widget _buildCalendarGrid() {
+    final firstDayOfMonth = DateTime(_currentMonth.year, _currentMonth.month, 1);
+    final daysInMonth = DateTime(_currentMonth.year, _currentMonth.month + 1, 0).day;
+    final startWeekday = firstDayOfMonth.weekday % 7; // 일요일(0) ~ 토요일(6)
+
+    final weekLabels = ['일', '월', '화', '수', '목', '금', '토'];
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        children: [
+          // 요일 헤더
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: weekLabels.map((w) {
+              return Expanded(
+                child: Center(
+                  child: Text(
+                    w,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: w == '일' ? Colors.red : (w == '토' ? Colors.blue : Colors.black87),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const Divider(height: 16),
+          // 날짜 그리드
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              childAspectRatio: 1.1,
+            ),
+            itemCount: startWeekday + daysInMonth,
+            itemBuilder: (context, index) {
+              if (index < startWeekday) {
+                return const SizedBox.shrink();
+              }
+              final dayNum = index - startWeekday + 1;
+              final cellDate = DateTime(_currentMonth.year, _currentMonth.month, dayNum);
+              final cellKey = _formatDateKey(cellDate);
+              final isSelected = _selectedDate != null &&
+                  _selectedDate!.year == cellDate.year &&
+                  _selectedDate!.month == cellDate.month &&
+                  _selectedDate!.day == cellDate.day;
+              final hasData = (_scheduleMap[cellKey]?.isNotEmpty ?? false);
+
+              return InkWell(
+                onTap: () => setState(() => _selectedDate = cellDate),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  margin: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: isSelected ? Colors.blueAccent.withOpacity(0.2) : Colors.transparent,
+                    border: isSelected ? Border.all(color: Colors.blueAccent, width: 1.5) : null,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        '$dayNum',
+                        style: TextStyle(
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          color: cellDate.weekday == 7 ? Colors.red : (cellDate.weekday == 6 ? Colors.blue : Colors.black87),
+                        ),
+                      ),
+                      if (hasData)
+                        Container(
+                          margin: const EdgeInsets.only(top: 3),
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            color: Colors.orange,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
