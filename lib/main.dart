@@ -1271,7 +1271,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                                 margin: const EdgeInsets.only(left: 8),
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(4)),
-                                child: const Text('🔓 2주 이후 (자유 신청/삭제)', style: TextStyle(fontSize: 11, color: Colors.green.shade800, fontWeight: FontWeight.bold)),
+                                child: Text('🔓 2주 이후 (자유 신청/삭제)', style: TextStyle(fontSize: 11, color: Colors.green.shade800, fontWeight: FontWeight.bold)),
                               ),
                           ],
                         ),
@@ -1553,6 +1553,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
   void _rejectRequest(int index) {
     final req = widget.approvalRequests[index];
     final actionType = req['actionType'] ?? '신청요청';
+    final targetDate = req['date'] ?? '';
 
     setState(() {
       widget.approvalRequests.removeAt(index);
@@ -1561,7 +1562,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
 
     widget.sendNotification(
       "❌ [결재 반려]",
-      "${req['empName']}님의 $dateKey [$actionType] 건이 반려되었습니다.",
+      "${req['empName']}님의 $targetDate [$actionType] 건이 반려되었습니다.",
     );
 
     ScaffoldMessenger.of(context).showSnackBar(
