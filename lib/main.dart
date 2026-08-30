@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'dart:html' as html; // 웹 전용 백그라운드 브라우저 알림 API
+import 'dart:html' as html; // 웹 백그라운드 브라우저 알림
 
 void main() {
   runApp(const WorkScheduleApp());
@@ -22,7 +22,7 @@ class WorkScheduleApp extends StatelessWidget {
   }
 }
 
-// 1. 로그인 화면 (사번 + 이름 + 관리자 전환/인증코드)
+// 1. 로그인 화면 (사번 + 성명 + 관리자 코드: ktngsj)
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -36,7 +36,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final _adminCodeController = TextEditingController();
   bool _isAdminMode = false;
 
-  // 관리자 인증 비밀번호
   static const String correctAdminCode = "ktngsj";
 
   void _login() {
@@ -133,7 +132,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     obscureText: true,
                     decoration: const InputDecoration(
                       labelText: '관리자 비밀코드',
-                      hintText: 'admin1234',
+                      hintText: 'ktngsj',
                       border: OutlineInputBorder(),
                       prefixIcon: Icon(Icons.security),
                     ),
@@ -159,7 +158,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 2. 메인 스케줄 + 캘린더 + 공지사항 + 알림 화면
+// 2. 메인 스케줄 + 캘린더 화면
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -177,15 +176,13 @@ class MainScheduleScreen extends StatefulWidget {
 }
 
 class _MainScheduleScreenState extends State<MainScheduleScreen> {
-  // 공지사항 기본값
-  String _notice = "📢 이번 달 근무 스케줄은 매주 금요일까지 신청해 주시기 바랍니다.";
+  String _notice = "📢 근무 및 휴가 신청은 일정에 맞춰 사전 등록 바랍니다.";
   bool _notificationEnabled = false;
 
-  // 캘린더 날짜 제어
   DateTime _currentMonth = DateTime.now();
   DateTime? _selectedDate;
 
-  // 날짜별 근무 일정 저장 (예: "2026-08-31": ["김철수: 주간근무", "이영희: 야간근무"])
+  // 날짜별 일정 리스트
   final Map<String, List<String>> _scheduleMap = {};
 
   @override
@@ -198,12 +195,11 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     return "${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}";
   }
 
-  // 브라우저 백그라운드 푸시 알림 권한 및 발송
   void _toggleNotification(bool enable) async {
     if (enable) {
       if (html.Notification.permission == 'granted') {
         setState(() => _notificationEnabled = true);
-        _sendWebNotification("🔔 알림 설정 완료", "근무 등록 알림이 활성화되었습니다. 화면을 나가도 수신됩니다.");
+        _sendWebNotification("🔔 알림 설정 완료", "근무 등록 알림이 활성화되었습니다.");
       } else {
         final permission = await html.Notification.requestPermission();
         if (permission == 'granted') {
@@ -213,7 +209,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           setState(() => _notificationEnabled = false);
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('브라우저 알림 권한이 차단되었습니다. 브라우저 설정에서 허용해주세요.')),
+              const SnackBar(content: Text('브라우저 알림 권한이 차단되었습니다.')),
             );
           }
         }
@@ -229,7 +225,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     }
   }
 
-  // 관리자 전용 공지사항 수정 다이얼로그
   void _showEditNoticeDialog() {
     final controller = TextEditingController(text: _notice);
     showDialog(
@@ -261,73 +256,219 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 근무 등록 다이얼로그 (일반 사용자/관리자 공통)
+  // 30분 단위 시간 옵션 목록 (0시간부터 8시간까지)
+  List<String> _generateTimeOptions() {
+    List<String> options = [];
+    for (int i = 0; i <= 16; i++) {
+      int hours = i ~/ 2;
+      int minutes = (i % 2) * 30;
+      if (hours == 0 && minutes == 0) {
+        options.add("0시간 (0분)");
+      } else if (minutes == 0) {
+        options.add("$hours시간");
+      } else if (hours == 0) {
+        options.add("$minutes분");
+      } else {
+        options.add("$hours시간 $minutes분");
+      }
+    }
+    return options;
+  }
+
+  // 근무/휴가 신청 다이얼로그 (평일/주말 분기)
   void _showAddWorkDialog() {
     if (_selectedDate == null) return;
-    String workType = "주간근무 (09:00 - 18:00)";
-    final noteController = TextEditingController();
 
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text('${_formatDateKey(_selectedDate!)} 근무 신청'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<String>(
-                value: workType,
-                decoration: const InputDecoration(labelText: '근무 구분', border: OutlineInputBorder()),
-                items: const [
-                  DropdownMenuItem(value: "주간근무 (09:00 - 18:00)", child: Text("주간 (09:00~18:00)")),
-                  DropdownMenuItem(value: "야간근무 (18:00 - 09:00)", child: Text("야간 (18:00~09:00)")),
-                  DropdownMenuItem(value: "휴무 (Day Off)", child: Text("휴무 (Off)")),
-                  DropdownMenuItem(value: "연차/휴가", child: Text("연차/휴가")),
-                ],
-                onChanged: (val) {
-                  if (val != null) setDialogState(() => workType = val);
-                },
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: noteController,
-                decoration: const InputDecoration(
-                  labelText: '메모/전달사항',
-                  border: OutlineInputBorder(),
+    final isWeekend = _selectedDate!.weekday == DateTime.saturday || _selectedDate!.weekday == DateTime.sunday;
+    final dateKey = _formatDateKey(_selectedDate!);
+
+    if (isWeekend) {
+      // 주말 다이얼로그 (근무 가능 / 불가능)
+      String weekendOption = "근무 가능";
+      final weekendNoteController = TextEditingController();
+
+      showDialog(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text('주말 근무 설정 ($dateKey)'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: weekendOption,
+                  decoration: const InputDecoration(labelText: '주말 근무 여부', border: OutlineInputBorder()),
+                  items: const [
+                    DropdownMenuItem(value: "근무 가능", child: Text("근무 가능", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold))),
+                    DropdownMenuItem(value: "근무 불가능", child: Text("근무 불가능", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) setDialogState(() => weekendOption = val);
+                  },
                 ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: weekendNoteController,
+                  decoration: const InputDecoration(
+                    labelText: '비고/메모 (선택)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+              ElevatedButton(
+                onPressed: () {
+                  final entry = "[${widget.userName}(${widget.employeeId})] 주말 $weekendOption ${weekendNoteController.text.isNotEmpty ? '(${weekendNoteController.text})' : ''}";
+                  setState(() {
+                    _scheduleMap.putIfAbsent(dateKey, () => []).add(entry);
+                  });
+
+                  if (_notificationEnabled) {
+                    _sendWebNotification(
+                      "⚡ 주말 근무 신청",
+                      "${widget.userName}님이 $dateKey 주말 '$weekendOption'을 등록했습니다.",
+                    );
+                  }
+
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('주말 일정이 등록되었습니다.')),
+                  );
+                },
+                child: const Text('등록'),
               ),
             ],
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
-            ElevatedButton(
-              onPressed: () {
-                final key = _formatDateKey(_selectedDate!);
-                final entry = "[${widget.userName}(${widget.employeeId})] $workType ${noteController.text.isNotEmpty ? '(${noteController.text})' : ''}";
-
-                setState(() {
-                  _scheduleMap.putIfAbsent(key, () => []).add(entry);
-                });
-
-                // 관리자가 알림을 켜두었다면 백그라운드 브라우저 알림 발송
-                if (_notificationEnabled) {
-                  _sendWebNotification(
-                    "⚡ 새 근무 신청 도착",
-                    "${widget.userName}님이 $key 일자에 '$workType' 일정을 등록했습니다.",
-                  );
-                }
-
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('근무 일정이 등록되었습니다.')),
-                );
-              },
-              child: const Text('등록'),
-            ),
-          ],
         ),
-      ),
-    );
+      );
+    } else {
+      // 평일 다이얼로그 (연차, 체력단련, 가족사랑, 건강검진, 기타)
+      String selectedCategory = "연차";
+      String selectedLeaveTime = "8시간"; // 연차 기본값 8시간
+      final timeOptions = _generateTimeOptions();
+      final customNoteController = TextEditingController();
+
+      showDialog(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text('근무/휴가 신청 ($dateKey)'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: selectedCategory,
+                    decoration: const InputDecoration(labelText: '신청 항목', border: OutlineInputBorder()),
+                    items: const [
+                      DropdownMenuItem(value: "연차", child: Text("연차")),
+                      DropdownMenuItem(value: "체력단련", child: Text("체력단련")),
+                      DropdownMenuItem(value: "가족사랑", child: Text("가족사랑")),
+                      DropdownMenuItem(value: "건강검진", child: Text("건강검진")),
+                      DropdownMenuItem(value: "기타", child: Text("기타")),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) setDialogState(() => selectedCategory = val);
+                    },
+                  ),
+                  const SizedBox(height: 14),
+
+                  // 1. 연차 선택 시: 0시간 ~ 8시간 선택 드롭다운 활성화
+                  if (selectedCategory == "연차") ...[
+                    DropdownButtonFormField<String>(
+                      value: selectedLeaveTime,
+                      decoration: const InputDecoration(
+                        labelText: '연차 사용 시간 (0분 ~ 8시간)',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.timer_outlined),
+                      ),
+                      items: timeOptions.map((time) {
+                        return DropdownMenuItem(value: time, child: Text(time));
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) setDialogState(() => selectedLeaveTime = val);
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+
+                  // 2. 기타 선택 시: 직접 사유 적는 텍스트창 활성화
+                  if (selectedCategory == "기타") ...[
+                    TextField(
+                      controller: customNoteController,
+                      decoration: const InputDecoration(
+                        labelText: '기타 사유 입력 (필수)',
+                        hintText: '사유를 구체적으로 입력하세요',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.edit_note),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+
+                  // 공통 추가 메모
+                  if (selectedCategory != "기타")
+                    TextField(
+                      controller: customNoteController,
+                      decoration: const InputDecoration(
+                        labelText: '비고/메모 (선택)',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+              ElevatedButton(
+                onPressed: () {
+                  if (selectedCategory == "기타" && customNoteController.text.trim().isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('기타 사유를 입력해주세요.')),
+                    );
+                    return;
+                  }
+
+                  String details = "";
+                  if (selectedCategory == "연차") {
+                    details = "연차 ($selectedLeaveTime)";
+                  } else if (selectedCategory == "기타") {
+                    details = "기타 (${customNoteController.text.trim()})";
+                  } else {
+                    details = selectedCategory;
+                  }
+
+                  if (selectedCategory != "기타" && customNoteController.text.trim().isNotEmpty) {
+                    details += " - ${customNoteController.text.trim()}";
+                  }
+
+                  final entry = "[${widget.userName}(${widget.employeeId})] $details";
+
+                  setState(() {
+                    _scheduleMap.putIfAbsent(dateKey, () => []).add(entry);
+                  });
+
+                  if (_notificationEnabled) {
+                    _sendWebNotification(
+                      "⚡ 휴가/근무 신청 도착",
+                      "${widget.userName}님이 $dateKey '$details'을 신청했습니다.",
+                    );
+                  }
+
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('신청이 완료되었습니다.')),
+                  );
+                },
+                child: const Text('신청'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -356,7 +497,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 1. 공지사항 카드 (관리자만 수정 아이콘 노출)
+            // 공지사항 카드 (관리자만 수정)
             Card(
               color: Colors.amber.shade50,
               elevation: 2,
@@ -392,7 +533,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             ),
             const SizedBox(height: 12),
 
-            // 2. 관리자 전용: 백그라운드 웹 알림 스위치
+            // 관리자 전용 브라우저 알림 스위치
             if (widget.isAdmin) ...[
               Card(
                 color: Colors.blue.shade50,
@@ -404,7 +545,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     color: _notificationEnabled ? Colors.blueAccent : Colors.grey,
                   ),
                   title: const Text('근무 등록 백그라운드 알림', style: TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: const Text('창을 닫거나 다른 화면을 보고 있어도 실시간 푸시를 받습니다.'),
+                  subtitle: const Text('창을 닫거나 다른 작업을 해도 브라우저 팝업 알림 수신'),
                   value: _notificationEnabled,
                   onChanged: _toggleNotification,
                 ),
@@ -412,7 +553,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               const SizedBox(height: 12),
             ],
 
-            // 3. 월 이동 헤더
+            // 월 이동 헤더
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -436,12 +577,12 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             ),
             const SizedBox(height: 8),
 
-            // 4. 근무 캘린더 그리드
+            // 캘린더 그리드
             _buildCalendarGrid(),
 
             const SizedBox(height: 16),
 
-            // 5. 선택한 날짜의 근무 명단 리스트
+            // 선택 날짜 상세 현황
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -454,13 +595,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          '📅 $selectedKey 근무 현황',
+                          '📅 $selectedKey 신청 현황',
                           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                         ),
                         ElevatedButton.icon(
                           onPressed: _showAddWorkDialog,
-                          icon: const Icon(Icons.add, size: 18),
-                          label: const Text('근무 등록'),
+                          icon: const Icon(Icons.add_task, size: 18),
+                          label: const Text('근무/휴가 신청'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.blueAccent,
                             foregroundColor: Colors.white,
@@ -473,7 +614,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 16.0),
                         child: Center(
-                          child: Text('등록된 근무 일정이 없습니다.', style: TextStyle(color: Colors.grey)),
+                          child: Text('신청된 내역이 없습니다.', style: TextStyle(color: Colors.grey)),
                         ),
                       )
                     else
@@ -485,9 +626,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                           contentPadding: EdgeInsets.zero,
                           leading: const CircleAvatar(
                             backgroundColor: Colors.blueAccent,
-                            child: Icon(Icons.work, color: Colors.white, size: 18),
+                            child: Icon(Icons.event_note, color: Colors.white, size: 18),
                           ),
-                          title: Text(dayList[idx]),
+                          title: Text(dayList[idx], style: const TextStyle(fontWeight: FontWeight.w500)),
                         ),
                       ),
                   ],
@@ -500,11 +641,10 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 캘린더 위젯 생성
   Widget _buildCalendarGrid() {
     final firstDayOfMonth = DateTime(_currentMonth.year, _currentMonth.month, 1);
     final daysInMonth = DateTime(_currentMonth.year, _currentMonth.month + 1, 0).day;
-    final startWeekday = firstDayOfMonth.weekday % 7; // 일요일(0) ~ 토요일(6)
+    final startWeekday = firstDayOfMonth.weekday % 7;
 
     final weekLabels = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -517,7 +657,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       ),
       child: Column(
         children: [
-          // 요일 헤더
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: weekLabels.map((w) {
@@ -535,7 +674,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             }).toList(),
           ),
           const Divider(height: 16),
-          // 날짜 그리드
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
