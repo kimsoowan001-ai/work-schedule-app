@@ -259,8 +259,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   String _notice = "📢 당일 기준 2주(14일) 이내 변경/신청/삭제는 관리자 승인이 필요하며, 2주 이후 일정은 자유롭게 신청/삭제 가능합니다.";
   bool _notificationGranted = false;
 
-  String? _rosterImageBase64;
-  String? _rosterUploadTime;
+  // 여러 장의 근무표 이미지 리스트: [{ 'image': base64Str, 'time': timeStr }]
+  List<Map<String, String>> _rosterImages = [];
 
   DateTime _currentMonth = DateTime.now();
   DateTime? _selectedDate;
@@ -281,8 +281,19 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       final savedNotice = html.window.localStorage['ktng_notice'];
       if (savedNotice != null && savedNotice.isNotEmpty) _notice = savedNotice;
 
-      _rosterImageBase64 = html.window.localStorage['ktng_roster_image'];
-      _rosterUploadTime = html.window.localStorage['ktng_roster_time'];
+      // 다중 근무표 사진 데이터 로드
+      final savedImages = html.window.localStorage['ktng_roster_images_list'];
+      if (savedImages != null && savedImages.isNotEmpty) {
+        final decodedImgs = jsonDecode(savedImages) as List;
+        _rosterImages = decodedImgs.map((item) => Map<String, String>.from(item as Map)).toList();
+      } else {
+        // 기존 단일 이미지 호환
+        final oldSingleImg = html.window.localStorage['ktng_roster_image'];
+        final oldTime = html.window.localStorage['ktng_roster_time'] ?? '';
+        if (oldSingleImg != null && oldSingleImg.isNotEmpty) {
+          _rosterImages.add({'image': oldSingleImg, 'time': oldTime});
+        }
+      }
 
       final savedData = html.window.localStorage['ktng_schedule_data'];
       if (savedData != null && savedData.isNotEmpty) {
@@ -316,6 +327,14 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       html.window.localStorage['ktng_approval_data'] = jsonEncode(_approvalRequests);
     } catch (e) {
       debugPrint("데이터 저장 오류: $e");
+    }
+  }
+
+  void _saveImagesList() {
+    try {
+      html.window.localStorage['ktng_roster_images_list'] = jsonEncode(_rosterImages);
+    } catch (e) {
+      debugPrint("사진 목록 저장 오류: $e");
     }
   }
 
@@ -359,7 +378,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     return target.isBefore(today);
   }
 
-  // 정확한 2주(0~14일) 판정 함수
   bool _isWithinTwoWeeks(DateTime date) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -415,16 +433,15 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (ctx) => RosterImageScreen(
+        builder: (ctx) => MultiRosterImageScreen(
           isAdmin: widget.isAdmin,
-          currentImageBase64: _rosterImageBase64,
-          uploadTime: _rosterUploadTime,
-          onImageUploaded: (newImageBase64, timeStr) {
+          images: _rosterImages,
+          onImagesUpdated: (updatedList) {
             setState(() {
-              _rosterImageBase64 = newImageBase64;
-              _rosterUploadTime = timeStr;
+              _rosterImages = updatedList;
             });
-            _sendWebNotification("📸 [새 근무표 등록]", "새로운 근무표 사진이 등록되었습니다.");
+            _saveImagesList();
+            _sendWebNotification("📸 [근무표 사진 등록]", "새로운 근무표 사진(${updatedList.length}장)이 업데이트되었습니다.");
           },
         ),
       ),
@@ -1049,10 +1066,10 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 },
               ),
             ListTile(
-              leading: const Icon(Icons.image, color: Colors.indigo),
-              title: Text(widget.isAdmin ? '근무표 사진 등록/관리' : '이달의 근무표 사진 보기',
+              leading: const Icon(Icons.collections, color: Colors.indigo),
+              title: Text(widget.isAdmin ? '근무표 사진 등록/관리 (여러장)' : '이달의 근무표 사진 보기',
                   style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
-              subtitle: Text(widget.isAdmin ? '근무표 이미지 업로드' : '등록된 근무표 사진 확인'),
+              subtitle: Text(widget.isAdmin ? '근무표 이미지 일괄 업로드 (${_rosterImages.length}장)' : '등록된 근무표 사진 확인 (${_rosterImages.length}장)'),
               trailing: const Icon(Icons.arrow_forward_ios, size: 14),
               onTap: () {
                 Navigator.pop(context);
@@ -1681,81 +1698,133 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
   }
 }
 
-// 5. 근무표 사진 뷰어
-class RosterImageScreen extends StatefulWidget {
+// 5. 다중 근무표 사진 갤러리 뷰어 (여러 장 한 번에 업로드/삭제/전환 지원)
+class MultiRosterImageScreen extends StatefulWidget {
   final bool isAdmin;
-  final String? currentImageBase64;
-  final String? uploadTime;
-  final Function(String newImageBase64, String timeStr) onImageUploaded;
+  final List<Map<String, String>> images;
+  final Function(List<Map<String, String>> updatedList) onImagesUpdated;
 
-  const RosterImageScreen({
+  const MultiRosterImageScreen({
     super.key,
     required this.isAdmin,
-    this.currentImageBase64,
-    this.uploadTime,
-    required this.onImageUploaded,
+    required this.images,
+    required this.onImagesUpdated,
   });
 
   @override
-  State<RosterImageScreen> createState() => _RosterImageScreenState();
+  State<MultiRosterImageScreen> createState() => _MultiRosterImageScreenState();
 }
 
-class _RosterImageScreenState extends State<RosterImageScreen> {
-  String? _imagePreview;
-  String? _timeStr;
+class _MultiRosterImageScreenState extends State<MultiRosterImageScreen> {
+  late List<Map<String, String>> _imageList;
+  int _currentIndex = 0;
+  final PageController _pageController = PageController();
 
   @override
   void initState() {
     super.initState();
-    _imagePreview = widget.currentImageBase64;
-    _timeStr = widget.uploadTime;
+    _imageList = List.from(widget.images);
   }
 
-  void _pickAndUploadImage() {
-    final uploadInput = html.FileUploadInputElement()..accept = 'image/*';
+  void _pickMultipleImages() {
+    final uploadInput = html.FileUploadInputElement()
+      ..accept = 'image/*'
+      ..multiple = true; // 다중 파일 선택 허용
     uploadInput.click();
 
     uploadInput.onChange.listen((e) {
       final files = uploadInput.files;
       if (files != null && files.isNotEmpty) {
-        final file = files[0];
-        final reader = html.FileReader();
+        int loadedCount = 0;
+        final int totalFiles = files.length;
+        final now = DateTime.now();
+        final nowStr = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
 
-        reader.readAsDataUrl(file);
-        reader.onLoadEnd.listen((e) {
-          final result = reader.result as String?;
-          if (result != null) {
-            final now = DateTime.now();
-            final nowStr = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
-
-            setState(() {
-              _imagePreview = result;
-              _timeStr = nowStr;
-            });
-
-            html.window.localStorage['ktng_roster_image'] = result;
-            html.window.localStorage['ktng_roster_time'] = nowStr;
-
-            widget.onImageUploaded(result, nowStr);
-
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('근무표 사진이 성공적으로 등록되었습니다!')),
-            );
-          }
-        });
+        for (var file in files) {
+          final reader = html.FileReader();
+          reader.readAsDataUrl(file);
+          reader.onLoadEnd.listen((e) {
+            final result = reader.result as String?;
+            if (result != null) {
+              setState(() {
+                _imageList.add({
+                  'image': result,
+                  'time': nowStr,
+                });
+              });
+            }
+            loadedCount++;
+            if (loadedCount == totalFiles) {
+              widget.onImagesUpdated(_imageList);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('총 $totalFiles장의 근무표 사진이 추가 등록되었습니다!')),
+              );
+            }
+          });
+        }
       }
     });
   }
 
-  void _deleteImage() {
-    setState(() {
-      _imagePreview = null;
-      _timeStr = null;
-    });
-    html.window.localStorage.remove('ktng_roster_image');
-    html.window.localStorage.remove('ktng_roster_time');
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('근무표 사진이 삭제되었습니다.')),
+  void _deleteCurrentImage() {
+    if (_imageList.isEmpty) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('사진 삭제'),
+        content: Text('현재 보고 있는 ${_currentIndex + 1}번째 사진을 삭제하시겠습니까?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () {
+              setState(() {
+                _imageList.removeAt(_currentIndex);
+                if (_currentIndex >= _imageList.length && _currentIndex > 0) {
+                  _currentIndex = _imageList.length - 1;
+                }
+              });
+              widget.onImagesUpdated(_imageList);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('사진이 삭제되었습니다.')),
+              );
+            },
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteAllImages() {
+    if (_imageList.isEmpty) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('전체 사진 삭제'),
+        content: const Text('등록된 모든 근무표 사진을 일괄 삭제하시겠습니까?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () {
+              setState(() {
+                _imageList.clear();
+                _currentIndex = 0;
+              });
+              widget.onImagesUpdated(_imageList);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('모든 사진이 삭제되었습니다.')),
+              );
+            },
+            child: const Text('전체 삭제'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1764,17 +1833,34 @@ class _RosterImageScreenState extends State<RosterImageScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF1E1E1E),
       appBar: AppBar(
-        title: Text(widget.isAdmin ? '근무표 사진 관리 (관리자)' : '공식 근무표 사진'),
+        title: Text(widget.isAdmin
+            ? '근무표 사진 관리 (${_imageList.isEmpty ? 0 : _currentIndex + 1}/${_imageList.length})'
+            : '공식 근무표 사진 (${_imageList.isEmpty ? 0 : _currentIndex + 1}/${_imageList.length})'),
         backgroundColor: widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D),
         foregroundColor: Colors.white,
         actions: [
           if (widget.isAdmin) ...[
-            IconButton(icon: const Icon(Icons.upload_file), tooltip: '새 사진 등록/교체', onPressed: _pickAndUploadImage),
-            if (_imagePreview != null) IconButton(icon: const Icon(Icons.delete), tooltip: '사진 삭제', onPressed: _deleteImage),
+            IconButton(
+              icon: const Icon(Icons.add_photo_alternate),
+              tooltip: '사진 여러 장 한 번에 추가',
+              onPressed: _pickMultipleImages,
+            ),
+            if (_imageList.isNotEmpty) ...[
+              IconButton(
+                icon: const Icon(Icons.delete_outline),
+                tooltip: '현재 사진 삭제',
+                onPressed: _deleteCurrentImage,
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_forever),
+                tooltip: '전체 사진 삭제',
+                onPressed: _deleteAllImages,
+              ),
+            ],
           ],
         ],
       ),
-      body: _imagePreview == null
+      body: _imageList.isEmpty
           ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1785,9 +1871,9 @@ class _RosterImageScreenState extends State<RosterImageScreen> {
                   if (widget.isAdmin) ...[
                     const SizedBox(height: 20),
                     ElevatedButton.icon(
-                      onPressed: _pickAndUploadImage,
+                      onPressed: _pickMultipleImages,
                       icon: const Icon(Icons.add_photo_alternate),
-                      label: const Text('근무표 사진 업로드'),
+                      label: const Text('근무표 사진 여러 장 올리기'),
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white),
                     ),
                   ],
@@ -1796,29 +1882,94 @@ class _RosterImageScreenState extends State<RosterImageScreen> {
             )
           : Column(
               children: [
+                // 상단 안내 바
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   color: Colors.black54,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(_timeStr != null ? '등록일시: $_timeStr' : '공식 근무표', style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                      const Text('💡 두 손가락 또는 마우스 휠로 확대 가능', style: TextStyle(color: Colors.amberAccent, fontSize: 12)),
+                      Text(
+                        '등록일시: ${_imageList[_currentIndex]['time'] ?? ''}',
+                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
+                      const Text(
+                        '💡 좌우로 밀어서 넘기기 / 확대 가능',
+                        style: TextStyle(color: Colors.amberAccent, fontSize: 12),
+                      ),
                     ],
                   ),
                 ),
+                // 메인 스와이프 뷰어
                 Expanded(
-                  child: InteractiveViewer(
-                    minScale: 0.5,
-                    maxScale: 5.0,
-                    child: Center(
-                      child: Image.memory(
-                        base64Decode(_imagePreview!.split(',').last),
-                        fit: BoxFit.contain,
-                      ),
-                    ),
+                  child: PageView.builder(
+                    controller: _pageController,
+                    itemCount: _imageList.length,
+                    onPageChanged: (idx) {
+                      setState(() => _currentIndex = idx);
+                    },
+                    itemBuilder: (ctx, idx) {
+                      final item = _imageList[idx];
+                      final imgBase64 = item['image'] ?? '';
+
+                      return InteractiveViewer(
+                        minScale: 0.5,
+                        maxScale: 5.0,
+                        child: Center(
+                          child: imgBase64.isNotEmpty
+                              ? Image.memory(
+                                  base64Decode(imgBase64.split(',').last),
+                                  fit: BoxFit.contain,
+                                )
+                              : const Icon(Icons.broken_image, size: 60, color: Colors.grey),
+                        ),
+                      );
+                    },
                   ),
                 ),
+                // 하단 썸네일 & 페이지 인디케이터
+                if (_imageList.length > 1)
+                  Container(
+                    height: 70,
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    color: Colors.black87,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _imageList.length,
+                      itemBuilder: (ctx, idx) {
+                        final isSel = idx == _currentIndex;
+                        final imgBase64 = _imageList[idx]['image'] ?? '';
+
+                        return GestureDetector(
+                          onTap: () {
+                            _pageController.animateToPage(
+                              idx,
+                              duration: const Duration(milliseconds: 250),
+                              curve: Curves.easeInOut,
+                            );
+                          },
+                          child: Container(
+                            width: 54,
+                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: isSel ? Colors.amberAccent : Colors.transparent,
+                                width: 2,
+                              ),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: Image.memory(
+                                base64Decode(imgBase64.split(',').last),
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
               ],
             ),
     );
