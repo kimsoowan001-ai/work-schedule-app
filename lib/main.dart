@@ -1105,7 +1105,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         ),
       ),
       appBar: AppBar(
-        title: Text('${widget.userName} (${widget.isAdmin ? "관리자 모드" : "사원"})'),
+        title: Text('${widget.userName} (${widget.isAdmin ? "관리자" : "사원"})'),
         backgroundColor: widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D),
         foregroundColor: Colors.white,
         actions: [
@@ -1152,13 +1152,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(12.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 color: Colors.indigo.shade50,
                 borderRadius: BorderRadius.circular(10),
@@ -1166,11 +1166,11 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.info_outline, color: Colors.indigo),
-                  SizedBox(width: 10),
+                  Icon(Icons.info_outline, color: Colors.indigo, size: 20),
+                  SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      '• 2주 이내: 변경/신청/삭제 시 관리자 승인 필요\n• 2주 이후: 승인 없이 즉시 신청 및 [삭제] 가능',
+                      '• 2주 이내: 관리자 승인 후 반영\n• 2주 이후: 자유 신청 및 즉시 [삭제] 가능',
                       style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B365D)),
                     ),
                   ),
@@ -1179,10 +1179,10 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             ),
             Card(
               color: Colors.amber.shade50,
-              elevation: 2,
+              elevation: 1,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: Padding(
-                padding: const EdgeInsets.all(16.0),
+                padding: const EdgeInsets.all(12.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1191,26 +1191,28 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       children: [
                         const Row(
                           children: [
-                            Icon(Icons.campaign, color: Colors.orange, size: 24),
-                            SizedBox(width: 8),
-                            Text('공지사항', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                            Icon(Icons.campaign, color: Colors.orange, size: 20),
+                            SizedBox(width: 6),
+                            Text('공지사항', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                           ],
                         ),
                         if (widget.isAdmin)
                           IconButton(
-                            icon: const Icon(Icons.edit, color: Colors.blueAccent),
-                            tooltip: '공지 수정 및 알림 발송 (관리자 전용)',
+                            icon: const Icon(Icons.edit, color: Colors.blueAccent, size: 20),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            tooltip: '공지 수정 (관리자)',
                             onPressed: _showEditNoticeDialog,
                           ),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    Text(_notice, style: const TextStyle(fontSize: 14, height: 1.4)),
+                    const SizedBox(height: 4),
+                    Text(_notice, style: const TextStyle(fontSize: 13, height: 1.35)),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1232,61 +1234,69 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             _buildCalendarGrid(),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: Padding(
-                padding: const EdgeInsets.all(16.0),
+                padding: const EdgeInsets.all(14.0),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // 모바일 최적화 헤더: 줄바꿈 방지 및 태그 분리
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        Row(
-                          children: [
-                            Text(
-                              widget.isAdmin ? '👥 $selectedKey 전체 사원 신청 현황' : '📅 $selectedKey 내 신청 내역',
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                            ),
-                            if (isPast)
-                              Container(
-                                margin: const EdgeInsets.only(left: 8),
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(4)),
-                                child: const Text('지난 날짜', style: TextStyle(fontSize: 11, color: Colors.black54)),
-                              )
-                            else if (isWithin2Weeks && !widget.isAdmin)
-                              Container(
-                                margin: const EdgeInsets.only(left: 8),
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(4)),
-                                child: const Text('🔒 2주 이내 (승인필요)', style: TextStyle(fontSize: 11, color: Colors.deepOrange, fontWeight: FontWeight.bold)),
-                              )
-                            else if (!isWithin2Weeks && !widget.isAdmin)
-                              Container(
-                                margin: const EdgeInsets.only(left: 8),
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(4)),
-                                child: Text('🔓 2주 이후 (자유 신청/삭제)', style: TextStyle(fontSize: 11, color: Colors.green.shade800, fontWeight: FontWeight.bold)),
-                              ),
-                          ],
-                        ),
-                        ElevatedButton.icon(
-                          onPressed: isPast ? _showPastWorkRecordDialog : _showAddWorkDialog,
-                          icon: Icon(isPast ? Icons.edit_calendar : (isWithin2Weeks && !widget.isAdmin ? Icons.lock_clock : Icons.add_task), size: 18),
-                          label: Text(isPast ? '지난 근무 기록' : (isWithin2Weeks && !widget.isAdmin ? '승인 요청' : '근무/휴가 신청')),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: isPast
-                                ? Colors.blueGrey
-                                : (isWithin2Weeks && !widget.isAdmin ? Colors.deepOrange : (widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D))),
-                            foregroundColor: Colors.white,
+                        Expanded(
+                          child: Text(
+                            widget.isAdmin ? '👥 $selectedKey 전체 신청' : '📅 $selectedKey 내 신청',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                        if (isPast)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(6)),
+                            child: const Text('지난 날짜', style: TextStyle(fontSize: 11, color: Colors.black54)),
+                          )
+                        else if (isWithin2Weeks && !widget.isAdmin)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(6)),
+                            child: const Text('🔒 승인 필요 (2주 이내)', style: TextStyle(fontSize: 11, color: Colors.deepOrange, fontWeight: FontWeight.bold)),
+                          )
+                        else if (!isWithin2Weeks && !widget.isAdmin)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(6)),
+                            child: Text('🔓 자유 신청 (2주 이후)', style: TextStyle(fontSize: 11, color: Colors.green.shade800, fontWeight: FontWeight.bold)),
+                          ),
                       ],
+                    ),
+                    const SizedBox(height: 12),
+                    // 모바일에서 절대 잘리지 않는 큼직한 메인 신청 버튼
+                    SizedBox(
+                      width: double.infinity,
+                      height: 46,
+                      child: ElevatedButton.icon(
+                        onPressed: isPast ? _showPastWorkRecordDialog : _showAddWorkDialog,
+                        icon: Icon(isPast ? Icons.edit_calendar : (isWithin2Weeks && !widget.isAdmin ? Icons.lock_clock : Icons.add_task), size: 20),
+                        label: Text(
+                          isPast ? '지난 근무 기록' : (isWithin2Weeks && !widget.isAdmin ? '2주 이내 긴급 승인 요청하기' : '근무 / 휴가 신청하기'),
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isPast
+                              ? Colors.blueGrey
+                              : (isWithin2Weeks && !widget.isAdmin ? Colors.deepOrange : (widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D))),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
                     ),
                     const Divider(height: 24),
                     if (myPendingList.isNotEmpty) ...[
@@ -1410,7 +1420,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           const Divider(height: 16),
           GridView.builder(
             shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
+            physics: const NeverScrollableScrollPhysics),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 7,
               childAspectRatio: 1.1,
