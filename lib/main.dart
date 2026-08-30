@@ -80,7 +80,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
-// 2. 로그인 화면 (관리자 코드: ktngsj)
+// 2. 로그인 화면 (관리자 비밀코드: ktngsj)
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -238,7 +238,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 3. 메인 스케줄 화면 (2주 규칙: 2주 이내 승인제 / 2주 이후 즉시 등록 및 삭제)
+// 3. 메인 스케줄 화면 (중복 방지 및 2주 승인/삭제 로직)
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -265,9 +265,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   DateTime _currentMonth = DateTime.now();
   DateTime? _selectedDate;
 
-  // 전체 공유 등록된 일정 데이터
+  // 전체 공유 일정 데이터
   static Map<String, List<Map<String, String>>> _globalScheduleMap = {};
-  // 관리자 승인 대기 리스트 (추가/수정/삭제 요청)
+  // 관리자 승인 대기 리스트
   static List<Map<String, String>> _approvalRequests = [];
 
   @override
@@ -278,6 +278,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     _safeCheckNotificationPermission();
   }
 
+  // 중복 데이터를 자동으로 제거하며 로드
   void _loadStoredData() {
     try {
       final savedNotice = html.window.localStorage['ktng_notice'];
@@ -291,7 +292,15 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         final decoded = jsonDecode(savedData) as Map<String, dynamic>;
         _globalScheduleMap = decoded.map((key, value) {
           final list = (value as List).map((item) => Map<String, String>.from(item as Map)).toList();
-          return MapEntry(key, list);
+
+          // 사원별 중복 항목 제거 (사번 기준 유일하게 정리)
+          final Map<String, Map<String, String>> uniqueByEmp = {};
+          for (var entry in list) {
+            final emp = entry['empId'] ?? '';
+            uniqueByEmp[emp] = entry; // 가장 마지막 항목만 유지
+          }
+
+          return MapEntry(key, uniqueByEmp.values.toList());
         });
       }
 
@@ -356,7 +365,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     return target.isBefore(today);
   }
 
-  // 오늘 기준 14일(2주) 이내인지 정확히 판별
   bool _isWithinTwoWeeks(DateTime date) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -446,10 +454,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     return options;
   }
 
-  // 등록된 일정 삭제 로직 (2주 이후면 바로 삭제, 2주 이내면 삭제 승인 요청)
+  // 삭제 처리
   void _handleDeleteItem(String dateKey, Map<String, String> item, bool isWithin2Weeks) {
     if (widget.isAdmin) {
-      // 관리자는 즉시 삭제 가능
       setState(() {
         _globalScheduleMap[dateKey]?.remove(item);
       });
@@ -459,14 +466,12 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     }
 
     if (!isWithin2Weeks) {
-      // 2주 이후 일정은 사용자 본인이 즉시 삭제 가능!
       setState(() {
         _globalScheduleMap[dateKey]?.remove(item);
       });
       saveAllData();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('2주 이후 일정이 즉시 취소/삭제되었습니다.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('2주 이후 일정이 즉시 삭제되었습니다.')));
     } else {
-      // 2주 이내 일정 삭제는 관리자 승인 필요!
       final deleteReasonController = TextEditingController();
       showDialog(
         context: context,
@@ -499,6 +504,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('삭제 사유를 입력해주세요.')));
                   return;
                 }
+
+                // 기존 중복 요청이 있다면 제거
+                _approvalRequests.removeWhere((r) => r['date'] == dateKey && r['empId'] == widget.employeeId);
 
                 final req = {
                   'id': DateTime.now().millisecondsSinceEpoch.toString(),
@@ -591,7 +599,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 };
 
                 setState(() {
-                  _globalScheduleMap.putIfAbsent(dateKey, () => []).add(record);
+                  // 중복 방지: 해당 사원의 기존 기록 제거 후 최신 기록 1건만 등록
+                  _globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((item) => item['empId'] == widget.employeeId);
+                  _globalScheduleMap[dateKey]!.add(record);
                 });
                 saveAllData();
 
@@ -608,7 +618,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 근무/휴가 신청 다이얼로그 (2주 이내 승인제 vs 2주 이후 자유 등록)
+  // 근무/휴가 신청 다이얼로그
   void _showAddWorkDialog() {
     if (_selectedDate == null) return;
 
@@ -720,6 +730,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   final contentStr = '주말 $weekendOption ${note.isNotEmpty ? '($note)' : ''}';
 
                   if (requiresApproval) {
+                    // 중복 승인 요청 방지 (이전 요청 제거 후 신규 1건 등록)
+                    _approvalRequests.removeWhere((r) => r['date'] == dateKey && r['empId'] == widget.employeeId);
+
                     final req = {
                       'id': DateTime.now().millisecondsSinceEpoch.toString(),
                       'actionType': '신청요청',
@@ -753,13 +766,15 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       'content': contentStr,
                     };
                     setState(() {
-                      _globalScheduleMap.putIfAbsent(dateKey, () => []).add(record);
+                      // 중복 방지: 동일 사원의 이전 등록건 삭제 후 최신 1건만 등록
+                      _globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((item) => item['empId'] == widget.employeeId);
+                      _globalScheduleMap[dateKey]!.add(record);
                     });
                     saveAllData();
 
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('주말 일정이 즉시 등록되었습니다.')),
+                      const SnackBar(content: Text('주말 일정이 정상 등록되었습니다.')),
                     );
                   }
                 },
@@ -910,6 +925,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   }
 
                   if (requiresApproval) {
+                    _approvalRequests.removeWhere((r) => r['date'] == dateKey && r['empId'] == widget.employeeId);
+
                     final req = {
                       'id': DateTime.now().millisecondsSinceEpoch.toString(),
                       'actionType': '신청요청',
@@ -943,13 +960,15 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       'content': details,
                     };
                     setState(() {
-                      _globalScheduleMap.putIfAbsent(dateKey, () => []).add(record);
+                      // 중복 방지: 동일 사원의 이전 등록건 삭제 후 최신 1건만 등록
+                      _globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((item) => item['empId'] == widget.employeeId);
+                      _globalScheduleMap[dateKey]!.add(record);
                     });
                     saveAllData();
 
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('신청이 즉시 등록되었습니다.')),
+                      const SnackBar(content: Text('신청이 정상 등록되었습니다.')),
                     );
                   }
                 },
@@ -1157,7 +1176,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 2주 승인 안내 배너
+            // 2주 안내 배너
             Container(
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1368,7 +1387,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                                 style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                               ),
                               subtitle: Text('구분: ${item['type']}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-                              // 🗑️ 2주 이후 삭제 버튼 활성화 (2주 이내면 삭제 승인창)
                               trailing: IconButton(
                                 icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
                                 tooltip: widget.isAdmin
@@ -1540,18 +1558,17 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
 
     setState(() {
       if (actionType == '삭제요청') {
-        // 등록된 일정에서 삭제 실행
-        widget.scheduleMap[dateKey]?.removeWhere((element) =>
-            element['empId'] == req['empId'] && element['content'] == req['content']);
+        widget.scheduleMap[dateKey]?.removeWhere((element) => element['empId'] == req['empId']);
       } else {
-        // 등록된 일정에 추가 실행
+        // 기존 건 제거 후 추가하여 중복 방지
         final record = {
           'empId': req['empId']!,
           'empName': req['empName']!,
           'type': req['type']!,
           'content': req['content']!,
         };
-        widget.scheduleMap.putIfAbsent(dateKey, () => []).add(record);
+        widget.scheduleMap.putIfAbsent(dateKey, () => []).removeWhere((element) => element['empId'] == req['empId']);
+        widget.scheduleMap[dateKey]!.add(record);
       }
       widget.approvalRequests.removeAt(index);
     });
@@ -1913,9 +1930,7 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
                             onPressed: () {
                               setState(() {
                                 final date = item['date']!;
-                                widget.scheduleMap[date]?.removeWhere((element) =>
-                                    element['empId'] == item['empId'] &&
-                                    element['content'] == item['content']);
+                                widget.scheduleMap[date]?.removeWhere((element) => element['empId'] == item['empId']);
                               });
                               widget.onScheduleUpdated();
                             },
