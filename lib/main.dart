@@ -242,7 +242,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 3. 메인 스케줄 화면
+// 3. 메인 스케줄 화면 (2주 규칙 & 중복 방지)
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -789,7 +789,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             title: Text('근무/휴가 신청 ($dateKey)'),
             content: SingleChildScrollView(
               child: Column(
-                mainAxisSize: MyAxisSize.min,
+                mainAxisSize: MainAxisSize.min, // 오타 수정 완료
                 children: [
                   if (requiresApproval)
                     Container(
@@ -1906,9 +1906,7 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
                             onPressed: () {
                               setState(() {
                                 final date = item['date']!;
-                                widget.scheduleMap[date]?.removeWhere((element) =>
-                                    element['empId'] == item['empId'] &&
-                                    element['content'] == item['content']);
+                                widget.scheduleMap[date]?.removeWhere((element) => element['empId'] == item['empId']);
                               });
                               widget.onScheduleUpdated();
                             },
