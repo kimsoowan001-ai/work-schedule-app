@@ -80,7 +80,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
-// 2. 로그인 화면 (관리자 비밀코드: ktngsj)
+// 2. 로그인 화면 (관리자 코드: ktngsj)
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -238,7 +238,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 3. 메인 스케줄 화면 (2주 이내 승인제 적용)
+// 3. 메인 스케줄 화면 (2주 규칙: 2주 이내 승인제 / 2주 이후 즉시 등록 및 삭제)
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -256,7 +256,7 @@ class MainScheduleScreen extends StatefulWidget {
 }
 
 class _MainScheduleScreenState extends State<MainScheduleScreen> {
-  String _notice = "📢 당일 기준 2주 이내의 일정 변경/신청은 관리자 승인이 필요합니다.";
+  String _notice = "📢 당일 기준 2주(14일) 이내 변경/신청/삭제는 관리자 승인이 필요하며, 2주 이후 일정은 자유롭게 신청/삭제 가능합니다.";
   bool _notificationGranted = false;
 
   String? _rosterImageBase64;
@@ -265,9 +265,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   DateTime _currentMonth = DateTime.now();
   DateTime? _selectedDate;
 
-  // 전체 공유 일정 저장소
+  // 전체 공유 등록된 일정 데이터
   static Map<String, List<Map<String, String>>> _globalScheduleMap = {};
-  // 관리자 승인 대기 리스트
+  // 관리자 승인 대기 리스트 (추가/수정/삭제 요청)
   static List<Map<String, String>> _approvalRequests = [];
 
   @override
@@ -356,7 +356,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     return target.isBefore(today);
   }
 
-  // 오늘 기준 14일(2주) 이내인지 판별
+  // 오늘 기준 14일(2주) 이내인지 정확히 판별
   bool _isWithinTwoWeeks(DateTime date) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -446,6 +446,92 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     return options;
   }
 
+  // 등록된 일정 삭제 로직 (2주 이후면 바로 삭제, 2주 이내면 삭제 승인 요청)
+  void _handleDeleteItem(String dateKey, Map<String, String> item, bool isWithin2Weeks) {
+    if (widget.isAdmin) {
+      // 관리자는 즉시 삭제 가능
+      setState(() {
+        _globalScheduleMap[dateKey]?.remove(item);
+      });
+      saveAllData();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('일정이 삭제되었습니다.')));
+      return;
+    }
+
+    if (!isWithin2Weeks) {
+      // 2주 이후 일정은 사용자 본인이 즉시 삭제 가능!
+      setState(() {
+        _globalScheduleMap[dateKey]?.remove(item);
+      });
+      saveAllData();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('2주 이후 일정이 즉시 취소/삭제되었습니다.')));
+    } else {
+      // 2주 이내 일정 삭제는 관리자 승인 필요!
+      final deleteReasonController = TextEditingController();
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('🔒 2주 이내 일정 삭제 승인 요청'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('당일 기준 2주 이내 일정의 취소/삭제는 관리자 승인이 필요합니다.', style: TextStyle(fontSize: 13, color: Colors.deepOrange)),
+              const SizedBox(height: 12),
+              Text('삭제 대상: ${item['content']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const SizedBox(height: 14),
+              TextField(
+                controller: deleteReasonController,
+                decoration: const InputDecoration(
+                  labelText: '삭제/취소 사유 (필수)',
+                  hintText: '취소 사유를 입력해주세요',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange, foregroundColor: Colors.white),
+              onPressed: () {
+                if (deleteReasonController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('삭제 사유를 입력해주세요.')));
+                  return;
+                }
+
+                final req = {
+                  'id': DateTime.now().millisecondsSinceEpoch.toString(),
+                  'actionType': '삭제요청',
+                  'date': dateKey,
+                  'empId': widget.employeeId,
+                  'empName': widget.userName,
+                  'type': item['type'] ?? '삭제',
+                  'content': item['content'] ?? '',
+                  'reason': deleteReasonController.text.trim(),
+                  'requestTime': DateTime.now().toString().substring(0, 16),
+                };
+
+                setState(() {
+                  _approvalRequests.add(req);
+                });
+                saveAllData();
+
+                _sendWebNotification("⚡ [삭제 승인 요청]", "${widget.userName}님이 $dateKey 일정 삭제를 승인 요청했습니다.");
+
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('관리자에게 삭제 승인 요청이 전송되었습니다.')),
+                );
+              },
+              child: const Text('삭제 승인 요청'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   void _showPastWorkRecordDialog() {
     if (_selectedDate == null) return;
     final dateKey = _formatDateKey(_selectedDate!);
@@ -502,7 +588,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   'empName': widget.userName,
                   'type': '(실제기록)',
                   'content': '$shiftTime ${note.isNotEmpty ? ' | 연장/메모: $note' : ''}',
-                  'status': '승인완료',
                 };
 
                 setState(() {
@@ -523,7 +608,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 근무/휴가 신청 (2주 이내 관리자 승인 로직 적용)
+  // 근무/휴가 신청 다이얼로그 (2주 이내 승인제 vs 2주 이후 자유 등록)
   void _showAddWorkDialog() {
     if (_selectedDate == null) return;
 
@@ -534,7 +619,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
     final isWeekend = _selectedDate!.weekday == DateTime.saturday || _selectedDate!.weekday == DateTime.sunday;
     final dateKey = _formatDateKey(_selectedDate!);
-    final bool requiresApproval = !widget.isAdmin && _isWithinTwoWeeks(_selectedDate!);
+    final bool isWithin2Weeks = _isWithinTwoWeeks(_selectedDate!);
+    final bool requiresApproval = !widget.isAdmin && isWithin2Weeks;
 
     final approvalReasonController = TextEditingController();
 
@@ -562,8 +648,26 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                           SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              '🔒 당일 기준 2주 이내 날짜입니다.\n관리자의 승인이 완료된 후 최종 반영됩니다.',
+                              '🔒 당일 기준 2주 이내 날짜입니다.\n관리자의 승인이 완료된 후 최종 등록됩니다.',
                               style: TextStyle(fontSize: 12, color: Colors.deepOrange, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.check_circle, color: Colors.green, size: 20),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '🔓 2주 이후 날짜는 승인 없이 즉시 등록 및 삭제가 가능합니다.',
+                              style: TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.bold),
                             ),
                           ),
                         ],
@@ -590,7 +694,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     TextField(
                       controller: approvalReasonController,
                       decoration: const InputDecoration(
-                        labelText: '2주 이내 변경 사유 (필수)',
+                        labelText: '2주 이내 변경/신청 사유 (필수)',
                         hintText: '사유를 구체적으로 입력하세요',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.rate_review, color: Colors.deepOrange),
@@ -607,7 +711,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 onPressed: () {
                   if (requiresApproval && approvalReasonController.text.trim().isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('2주 이내 변경 사유를 입력해주세요.')),
+                      const SnackBar(content: Text('2주 이내 긴급 신청 사유를 입력해주세요.')),
                     );
                     return;
                   }
@@ -616,9 +720,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   final contentStr = '주말 $weekendOption ${note.isNotEmpty ? '($note)' : ''}';
 
                   if (requiresApproval) {
-                    // 승인 대기 목록에 추가
                     final req = {
                       'id': DateTime.now().millisecondsSinceEpoch.toString(),
+                      'actionType': '신청요청',
                       'date': dateKey,
                       'empId': widget.employeeId,
                       'empName': widget.userName,
@@ -633,22 +737,20 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     saveAllData();
 
                     _sendWebNotification(
-                      "⚡ [승인 요청] 2주 이내 근무 변경",
+                      "⚡ [승인 요청] 2주 이내 주말 근무",
                       "${widget.userName}님이 $dateKey 주말 설정을 승인 요청했습니다.",
                     );
 
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('관리자에게 승인 요청이 전송되었습니다. 승인 후 반영됩니다.')),
+                      const SnackBar(content: Text('관리자에게 승인 요청이 전송되었습니다. 승인 후 캘린더에 반영됩니다.')),
                     );
                   } else {
-                    // 15일 이후이거나 관리자일 때 즉시 등록
                     final record = {
                       'empId': widget.employeeId,
                       'empName': widget.userName,
                       'type': '주말설정',
                       'content': contentStr,
-                      'status': '승인완료',
                     };
                     setState(() {
                       _globalScheduleMap.putIfAbsent(dateKey, () => []).add(record);
@@ -657,11 +759,11 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('주말 일정이 정상 등록되었습니다.')),
+                      const SnackBar(content: Text('주말 일정이 즉시 등록되었습니다.')),
                     );
                   }
                 },
-                child: Text(requiresApproval ? '승인 요청' : '등록', style: const TextStyle(color: Colors.white)),
+                child: Text(requiresApproval ? '승인 요청' : '즉시 등록', style: const TextStyle(color: Colors.white)),
               ),
             ],
           ),
@@ -693,8 +795,26 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                           SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              '🔒 당일 기준 2주 이내 날짜입니다.\n관리자의 승인이 완료된 후 최종 반영됩니다.',
+                              '🔒 당일 기준 2주 이내 날짜입니다.\n관리자의 승인이 완료된 후 최종 등록됩니다.',
                               style: TextStyle(fontSize: 12, color: Colors.deepOrange, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.check_circle, color: Colors.green, size: 20),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '🔓 2주 이후 날짜는 승인 없이 즉시 등록 및 삭제가 가능합니다.',
+                              style: TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.bold),
                             ),
                           ),
                         ],
@@ -752,7 +872,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     TextField(
                       controller: approvalReasonController,
                       decoration: const InputDecoration(
-                        labelText: '2주 이내 긴급 신청/수정 사유 (필수)',
+                        labelText: '2주 이내 긴급 신청 사유 (필수)',
                         hintText: '사유를 작성해주세요',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.rate_review, color: Colors.deepOrange),
@@ -790,9 +910,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   }
 
                   if (requiresApproval) {
-                    // 승인 대기 목록에 추가
                     final req = {
                       'id': DateTime.now().millisecondsSinceEpoch.toString(),
+                      'actionType': '신청요청',
                       'date': dateKey,
                       'empId': widget.employeeId,
                       'empName': widget.userName,
@@ -816,13 +936,11 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       const SnackBar(content: Text('관리자에게 승인 요청이 전송되었습니다. 관리자 승인 후 캘린더에 표시됩니다.')),
                     );
                   } else {
-                    // 15일 이후이거나 관리자일 때 즉시 등록
                     final record = {
                       'empId': widget.employeeId,
                       'empName': widget.userName,
                       'type': selectedCategory,
                       'content': details,
-                      'status': '승인완료',
                     };
                     setState(() {
                       _globalScheduleMap.putIfAbsent(dateKey, () => []).add(record);
@@ -831,11 +949,11 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('신청이 정상 등록되었습니다.')),
+                      const SnackBar(content: Text('신청이 즉시 등록되었습니다.')),
                     );
                   }
                 },
-                child: Text(requiresApproval ? '승인 요청' : '신청', style: const TextStyle(color: Colors.white)),
+                child: Text(requiresApproval ? '승인 요청' : '즉시 신청', style: const TextStyle(color: Colors.white)),
               ),
             ],
           ),
@@ -844,7 +962,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     }
   }
 
-  // 관리자 전용 결재함 화면 이동
   void _openApprovalManagementScreen() {
     Navigator.push(
       context,
@@ -918,12 +1035,11 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               title: const Text('근무 캘린더 (메인)'),
               onTap: () => Navigator.pop(context),
             ),
-            // 📌 관리자 결재함 메뉴 (대기 건수 뱃지)
             if (widget.isAdmin)
               ListTile(
                 leading: const Icon(Icons.assignment_turned_in, color: Colors.deepOrange),
-                title: const Text('긴급 수정 결재/승인함', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
-                subtitle: Text('2주 이내 변경 승인 대기: ${_approvalRequests.length}건'),
+                title: const Text('긴급 신청/삭제 결재함', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+                subtitle: Text('승인 대기 요청: ${_approvalRequests.length}건'),
                 trailing: _approvalRequests.isNotEmpty
                     ? CircleAvatar(radius: 12, backgroundColor: Colors.red, child: Text('${_approvalRequests.length}', style: const TextStyle(fontSize: 11, color: Colors.white)))
                     : const Icon(Icons.arrow_forward_ios, size: 14),
@@ -994,7 +1110,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         backgroundColor: widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D),
         foregroundColor: Colors.white,
         actions: [
-          // 관리자 결재함 바로가기 뱃지 버튼
           if (widget.isAdmin)
             Stack(
               alignment: Alignment.center,
@@ -1042,6 +1157,29 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // 2주 승인 안내 배너
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.indigo.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.indigo.shade200),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.indigo),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '• 2주 이내: 변경/신청/삭제 시 관리자 승인 필요\n• 2주 이후: 승인 없이 즉시 신청 및 [삭제] 가능',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B365D)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
             // 공지사항 카드
             Card(
               color: Colors.amber.shade50,
@@ -1138,6 +1276,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(4)),
                                 child: const Text('🔒 2주 이내 (승인필요)', style: TextStyle(fontSize: 11, color: Colors.deepOrange, fontWeight: FontWeight.bold)),
+                              )
+                            else if (!isWithin2Weeks && !widget.isAdmin)
+                              Container(
+                                margin: const EdgeInsets.only(left: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(4)),
+                                child: const Text('🔓 2주 이후 (자유 신청/삭제)', style: TextStyle(fontSize: 11, color: Colors.green.shade800, fontWeight: FontWeight.bold)),
                               ),
                           ],
                         ),
@@ -1156,7 +1301,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     ),
                     const Divider(height: 24),
 
-                    // 승인 대기 중인 항목 표시
+                    // 승인 대기 건 목록
                     if (myPendingList.isNotEmpty) ...[
                       const Text('⏳ 관리자 승인 대기 건', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
                       const SizedBox(height: 6),
@@ -1169,7 +1314,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                                 const Icon(Icons.hourglass_top, color: Colors.deepOrange, size: 20),
                                 const SizedBox(width: 8),
                                 Expanded(
-                                  child: Text('[${req['empName']}] ${req['content']} (사유: ${req['reason']})',
+                                  child: Text('[${req['empName']}] [${req['actionType'] ?? '신청'}] ${req['content']} (사유: ${req['reason']})',
                                       style: const TextStyle(fontSize: 13, color: Colors.brown, fontWeight: FontWeight.w600)),
                                 ),
                                 Container(
@@ -1223,18 +1368,14 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                                 style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                               ),
                               subtitle: Text('구분: ${item['type']}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-                              trailing: widget.isAdmin
-                                  ? IconButton(
-                                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                      tooltip: '관리자 삭제',
-                                      onPressed: () {
-                                        setState(() {
-                                          _globalScheduleMap[selectedKey]?.remove(item);
-                                        });
-                                        saveAllData();
-                                      },
-                                    )
-                                  : null,
+                              // 🗑️ 2주 이후 삭제 버튼 활성화 (2주 이내면 삭제 승인창)
+                              trailing: IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                tooltip: widget.isAdmin
+                                    ? '관리자 삭제'
+                                    : (isWithin2Weeks ? '삭제 승인 요청' : '즉시 삭제'),
+                                onPressed: () => _handleDeleteItem(selectedKey, item, isWithin2Weeks),
+                              ),
                             ),
                           );
                         },
@@ -1372,7 +1513,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   }
 }
 
-// 4. [신규 관리자 전용] 긴급 수정 승인 결재함 화면
+// 4. [관리자 전용] 결재함 (추가 및 삭제 요청 승인/반려 처리)
 class AdminApprovalScreen extends StatefulWidget {
   final List<Map<String, String>> approvalRequests;
   final Map<String, List<Map<String, String>>> scheduleMap;
@@ -1395,33 +1536,41 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
   void _approveRequest(int index) {
     final req = widget.approvalRequests[index];
     final dateKey = req['date']!;
-
-    final record = {
-      'empId': req['empId']!,
-      'empName': req['empName']!,
-      'type': req['type']!,
-      'content': req['content']!,
-      'status': '승인완료',
-    };
+    final actionType = req['actionType'] ?? '신청요청';
 
     setState(() {
-      widget.scheduleMap.putIfAbsent(dateKey, () => []).add(record);
+      if (actionType == '삭제요청') {
+        // 등록된 일정에서 삭제 실행
+        widget.scheduleMap[dateKey]?.removeWhere((element) =>
+            element['empId'] == req['empId'] && element['content'] == req['content']);
+      } else {
+        // 등록된 일정에 추가 실행
+        final record = {
+          'empId': req['empId']!,
+          'empName': req['empName']!,
+          'type': req['type']!,
+          'content': req['content']!,
+        };
+        widget.scheduleMap.putIfAbsent(dateKey, () => []).add(record);
+      }
       widget.approvalRequests.removeAt(index);
     });
     widget.onUpdated();
 
     widget.sendNotification(
       "✅ [결재 승인 완료]",
-      "${req['empName']}님의 $dateKey 신청(${req['content']})이 관리자 승인되었습니다.",
+      "${req['empName']}님의 $dateKey [$actionType] 건이 승인 처리되었습니다.",
     );
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${req['empName']}님의 신청이 승인되어 캘린더에 반영되었습니다.')),
+      SnackBar(content: Text('${req['empName']}님의 [$actionType] 건이 승인되었습니다.')),
     );
   }
 
   void _rejectRequest(int index) {
     final req = widget.approvalRequests[index];
+    final actionType = req['actionType'] ?? '신청요청';
+
     setState(() {
       widget.approvalRequests.removeAt(index);
     });
@@ -1429,7 +1578,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
 
     widget.sendNotification(
       "❌ [결재 반려]",
-      "${req['empName']}님의 $dateKey 신청 건이 반려되었습니다.",
+      "${req['empName']}님의 $dateKey [$actionType] 건이 반려되었습니다.",
     );
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1441,7 +1590,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('📌 2주 이내 긴급 수정 승인 결재함 (${widget.approvalRequests.length}건)'),
+        title: Text('📌 2주 이내 긴급 신청/삭제 결재함 (${widget.approvalRequests.length}건)'),
         backgroundColor: Colors.deepOrange,
         foregroundColor: Colors.white,
       ),
@@ -1461,6 +1610,8 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
               itemCount: widget.approvalRequests.length,
               itemBuilder: (ctx, idx) {
                 final req = widget.approvalRequests[idx];
+                final isDeleteReq = req['actionType'] == '삭제요청';
+
                 return Card(
                   elevation: 2,
                   margin: const EdgeInsets.only(bottom: 12),
@@ -1474,8 +1625,8 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              '📅 ${req['date']} [${req['type']}]',
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.deepOrange),
+                              '📅 ${req['date']} [${isDeleteReq ? '삭제요청' : req['type']}]',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDeleteReq ? Colors.red : Colors.deepOrange),
                             ),
                             Text('신청일시: ${req['requestTime']}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
                           ],
@@ -1483,13 +1634,13 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
                         const SizedBox(height: 8),
                         Text('👤 신청자: ${req['empName']} (${req['empId']})', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
                         const SizedBox(height: 4),
-                        Text('📝 신청내용: ${req['content']}', style: const TextStyle(fontSize: 14)),
+                        Text('📝 대상 내용: ${req['content']}', style: const TextStyle(fontSize: 14)),
                         const SizedBox(height: 6),
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
-                          child: Text('💡 변경 사유: ${req['reason']}', style: const TextStyle(fontSize: 13, color: Colors.brown)),
+                          child: Text('💡 사유: ${req['reason']}', style: const TextStyle(fontSize: 13, color: Colors.brown)),
                         ),
                         const Divider(height: 20),
                         Row(
@@ -1504,8 +1655,8 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
                             ElevatedButton.icon(
                               onPressed: () => _approveRequest(idx),
                               icon: const Icon(Icons.check),
-                              label: const Text('승인 (캘린더 반영)'),
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange, foregroundColor: Colors.white),
+                              label: Text(isDeleteReq ? '삭제 승인' : '신청 승인'),
+                              style: ElevatedButton.styleFrom(backgroundColor: isDeleteReq ? Colors.red : Colors.deepOrange, foregroundColor: Colors.white),
                             ),
                           ],
                         ),
