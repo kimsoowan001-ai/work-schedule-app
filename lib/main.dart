@@ -361,11 +361,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
   bool _isWithinTwoWeeks(DateTime date) {
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final today = DateTime(now.year, now.month, day(date));
     final target = DateTime(date.year, date.month, date.day);
     final diff = target.difference(today).inDays;
     return diff >= 0 && diff <= 14;
   }
+
+  static int day(DateTime d) => d.day;
 
   void _sendWebNotification(String title, String body) {
     try {
@@ -1245,7 +1247,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // 모바일 최적화 헤더: 줄바꿈 방지 및 태그 분리
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       crossAxisAlignment: CrossAxisAlignment.center,
@@ -1278,7 +1279,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    // 모바일에서 절대 잘리지 않는 큼직한 메인 신청 버튼
                     SizedBox(
                       width: double.infinity,
                       height: 46,
@@ -1420,7 +1420,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           const Divider(height: 16),
           GridView.builder(
             shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics),
+            physics: const NeverScrollableScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 7,
               childAspectRatio: 1.1,
