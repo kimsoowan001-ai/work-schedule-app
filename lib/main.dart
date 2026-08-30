@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'dart:html' as html;
 
@@ -79,7 +80,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
-// 2. 로그인 화면 (관리자 비밀코드: ktngsj)
+// 2. 로그인 화면 (사번/이름 자동 기억 포함)
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -94,6 +95,16 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isAdminMode = false;
 
   static const String correctAdminCode = "ktngsj";
+
+  @override
+  void initState() {
+    super.initState();
+    // 이전에 로그인했던 정보 불러오기
+    final savedEmpId = html.window.localStorage['last_emp_id'] ?? '';
+    final savedName = html.window.localStorage['last_name'] ?? '';
+    if (savedEmpId.isNotEmpty) _employeeIdController.text = savedEmpId;
+    if (savedName.isNotEmpty) _nameController.text = savedName;
+  }
 
   void _login() {
     final empId = _employeeIdController.text.trim();
@@ -112,6 +123,10 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       return;
     }
+
+    // 로그인 정보 로컬 저장
+    html.window.localStorage['last_emp_id'] = empId;
+    html.window.localStorage['last_name'] = name;
 
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
@@ -225,7 +240,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 3. 메인 스케줄 화면 (관리자는 전체 사원 내역 조회 가능)
+// 3. 메인 스케줄 화면 (LocalStorage 연동으로 영구 보존)
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -249,14 +264,56 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   DateTime _currentMonth = DateTime.now();
   DateTime? _selectedDate;
 
-  // 전체 공유 일정 저장소 (날짜 Key : List of entries)
-  static final Map<String, List<Map<String, String>>> _globalScheduleMap = {};
+  // 전체 공유 일정 저장소
+  static Map<String, List<Map<String, String>>> _globalScheduleMap = {};
 
   @override
   void initState() {
     super.initState();
     _selectedDate = DateTime.now();
+    _loadStoredData(); // 브라우저 내부 저장소 데이터 불러오기
     _safeCheckNotificationPermission();
+  }
+
+  // --- 로컬 스토리지 불러오기 & 저장 함수 ---
+  void _loadStoredData() {
+    try {
+      // 1. 공지사항 불러오기
+      final savedNotice = html.window.localStorage['ktng_notice'];
+      if (savedNotice != null && savedNotice.isNotEmpty) {
+        _notice = savedNotice;
+      }
+
+      // 2. 전체 근무 일정 불러오기
+      final savedData = html.window.localStorage['ktng_schedule_data'];
+      if (savedData != null && savedData.isNotEmpty) {
+        final decoded = jsonDecode(savedData) as Map<String, dynamic>;
+        _globalScheduleMap = decoded.map((key, value) {
+          final list = (value as List).map((item) {
+            return Map<String, String>.from(item as Map);
+          }).toList();
+          return MapEntry(key, list);
+        });
+      }
+      setState(() {});
+    } catch (e) {
+      debugPrint("데이터 로드 오류: $e");
+    }
+  }
+
+  static void saveScheduleData() {
+    try {
+      final encoded = jsonEncode(_globalScheduleMap);
+      html.window.localStorage['ktng_schedule_data'] = encoded;
+    } catch (e) {
+      debugPrint("데이터 저장 오류: $e");
+    }
+  }
+
+  void _saveNotice(String newNotice) {
+    try {
+      html.window.localStorage['ktng_notice'] = newNotice;
+    } catch (_) {}
   }
 
   void _safeCheckNotificationPermission() {
@@ -347,6 +404,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             onPressed: () {
               final newNotice = controller.text.trim();
               setState(() => _notice = newNotice);
+              _saveNotice(newNotice); // 브라우저 영구 저장
               Navigator.pop(ctx);
 
               _sendWebNotification(
@@ -355,7 +413,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               );
 
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('공지사항이 수정되었으며 알림이 발송되었습니다.')),
+                const SnackBar(content: Text('공지사항이 수정 및 저장되었습니다.')),
               );
             },
             child: const Text('저장 및 알림 전송'),
@@ -464,6 +522,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 setState(() {
                   _globalScheduleMap.putIfAbsent(dateKey, () => []).add(record);
                 });
+                saveScheduleData(); // 영구 저장
 
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -537,6 +596,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   setState(() {
                     _globalScheduleMap.putIfAbsent(dateKey, () => []).add(record);
                   });
+                  saveScheduleData(); // 영구 저장
 
                   _sendWebNotification(
                     "⚡ 주말 근무 신청",
@@ -656,6 +716,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   setState(() {
                     _globalScheduleMap.putIfAbsent(dateKey, () => []).add(record);
                   });
+                  saveScheduleData(); // 영구 저장
 
                   _sendWebNotification(
                     "⚡ 휴가/근무 신청 도착",
@@ -682,21 +743,26 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       MaterialPageRoute(
         builder: (ctx) => AdminRosterScreen(
           scheduleMap: _globalScheduleMap,
-          onScheduleUpdated: () => setState(() {}),
+          onScheduleUpdated: () {
+            setState(() {});
+            saveScheduleData();
+          },
           sendNotification: _sendWebNotification,
         ),
       ),
     );
   }
 
-  // 관리자 전용 전체 사원 신청/근무 목록 조회 페이지 이동
   void _openAllEmployeesOverviewScreen() {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (ctx) => AllEmployeesOverviewScreen(
           scheduleMap: _globalScheduleMap,
-          onScheduleUpdated: () => setState(() {}),
+          onScheduleUpdated: () {
+            setState(() {});
+            saveScheduleData();
+          },
         ),
       ),
     );
@@ -707,7 +773,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     final selectedKey = _selectedDate != null ? _formatDateKey(_selectedDate!) : '';
     final rawList = _globalScheduleMap[selectedKey] ?? [];
 
-    // [핵심 로직]: 관리자면 전체 리스트 노출, 일반 사원이면 본인 사번의 데이터만 필터링
     final displayList = widget.isAdmin
         ? rawList
         : rawList.where((item) => item['empId'] == widget.employeeId).toList();
@@ -738,7 +803,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               title: const Text('근무 캘린더 (메인)'),
               onTap: () => Navigator.pop(context),
             ),
-            // 관리자 전용 메뉴 1: 전체 사원 근무표 등록
             if (widget.isAdmin)
               ListTile(
                 leading: const Icon(Icons.edit_calendar, color: Colors.indigo),
@@ -750,7 +814,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   _openAdminScheduleRegistrationScreen();
                 },
               ),
-            // 관리자 전용 메뉴 2: 전체 사원 근무 현황 집계표
             if (widget.isAdmin)
               ListTile(
                 leading: const Icon(Icons.people_alt, color: Colors.teal),
@@ -894,7 +957,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
             const SizedBox(height: 16),
 
-            // 상세 현황 카드 (관리자: 전체 사원 내역 / 일반: 본인 내역)
+            // 상세 현황 카드
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -988,6 +1051,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                                         setState(() {
                                           _globalScheduleMap[selectedKey]?.remove(item);
                                         });
+                                        saveScheduleData(); // 삭제 반영 영구 저장
                                       },
                                     )
                                   : null,
@@ -1117,7 +1181,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   }
 }
 
-// 4. [관리자 전용] 전체 사원 종합 현황표 (모든 날짜, 모든 사원의 근무/신청 내역 요약)
+// 4. [관리자 전용] 전체 사원 종합 현황표
 class AllEmployeesOverviewScreen extends StatefulWidget {
   final Map<String, List<Map<String, String>>> scheduleMap;
   final VoidCallback onScheduleUpdated;
@@ -1137,7 +1201,6 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
 
   @override
   Widget build(BuildContext context) {
-    // 모든 날짜의 데이터를 리스트로 펼치기
     List<Map<String, String>> flattenedList = [];
     widget.scheduleMap.forEach((date, items) {
       for (var item in items) {
@@ -1151,10 +1214,8 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
       }
     });
 
-    // 날짜 기준 내림차순 정렬
     flattenedList.sort((a, b) => b['date']!.compareTo(a['date']!));
 
-    // 검색 필터 적용 (성명 또는 사번)
     if (_searchQuery.isNotEmpty) {
       flattenedList = flattenedList.where((item) =>
           item['empName']!.contains(_searchQuery) ||
@@ -1171,7 +1232,6 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
       ),
       body: Column(
         children: [
-          // 상단 검색창
           Container(
             padding: const EdgeInsets.all(16.0),
             color: Colors.white,
@@ -1186,7 +1246,6 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
             ),
           ),
           const Divider(height: 1),
-          // 종합 리스트
           Expanded(
             child: flattenedList.isEmpty
                 ? const Center(child: Text('등록된 근무/신청 내역이 없습니다.', style: TextStyle(color: Colors.grey, fontSize: 16)))
@@ -1318,7 +1377,7 @@ class _AdminRosterScreenState extends State<AdminRosterScreen> {
     _noteController.clear();
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('근무표가 등록되었으며 전체 캘린더에 반영되었습니다.')),
+      const SnackBar(content: Text('근무표가 등록되었으며 캘린더에 반영되었습니다.')),
     );
   }
 
