@@ -24,7 +24,7 @@ class WorkScheduleApp extends StatelessWidget {
   }
 }
 
-// 1. KT&G 인트로 화면
+// 1. KT&G 스플래시 화면
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -99,10 +99,12 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    final savedEmpId = html.window.localStorage['last_emp_id'] ?? '';
-    final savedName = html.window.localStorage['last_name'] ?? '';
-    if (savedEmpId.isNotEmpty) _employeeIdController.text = savedEmpId;
-    if (savedName.isNotEmpty) _nameController.text = savedName;
+    try {
+      final savedEmpId = html.window.localStorage['last_emp_id'] ?? '';
+      final savedName = html.window.localStorage['last_name'] ?? '';
+      if (savedEmpId.isNotEmpty) _employeeIdController.text = savedEmpId;
+      if (savedName.isNotEmpty) _nameController.text = savedName;
+    } catch (_) {}
   }
 
   void _login() {
@@ -123,8 +125,10 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    html.window.localStorage['last_emp_id'] = empId;
-    html.window.localStorage['last_name'] = name;
+    try {
+      html.window.localStorage['last_emp_id'] = empId;
+      html.window.localStorage['last_name'] = name;
+    } catch (_) {}
 
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
@@ -238,7 +242,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 3. 메인 스케줄 화면 (중복 방지 및 2주 승인/삭제 로직)
+// 3. 메인 스케줄 화면
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -265,9 +269,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   DateTime _currentMonth = DateTime.now();
   DateTime? _selectedDate;
 
-  // 전체 공유 일정 데이터
   static Map<String, List<Map<String, String>>> _globalScheduleMap = {};
-  // 관리자 승인 대기 리스트
   static List<Map<String, String>> _approvalRequests = [];
 
   @override
@@ -278,7 +280,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     _safeCheckNotificationPermission();
   }
 
-  // 중복 데이터를 자동으로 제거하며 로드
   void _loadStoredData() {
     try {
       final savedNotice = html.window.localStorage['ktng_notice'];
@@ -292,14 +293,11 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         final decoded = jsonDecode(savedData) as Map<String, dynamic>;
         _globalScheduleMap = decoded.map((key, value) {
           final list = (value as List).map((item) => Map<String, String>.from(item as Map)).toList();
-
-          // 사원별 중복 항목 제거 (사번 기준 유일하게 정리)
           final Map<String, Map<String, String>> uniqueByEmp = {};
           for (var entry in list) {
             final emp = entry['empId'] ?? '';
-            uniqueByEmp[emp] = entry; // 가장 마지막 항목만 유지
+            uniqueByEmp[emp] = entry;
           }
-
           return MapEntry(key, uniqueByEmp.values.toList());
         });
       }
@@ -454,7 +452,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     return options;
   }
 
-  // 삭제 처리
   void _handleDeleteItem(String dateKey, Map<String, String> item, bool isWithin2Weeks) {
     if (widget.isAdmin) {
       setState(() {
@@ -505,7 +502,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   return;
                 }
 
-                // 기존 중복 요청이 있다면 제거
                 _approvalRequests.removeWhere((r) => r['date'] == dateKey && r['empId'] == widget.employeeId);
 
                 final req = {
@@ -599,7 +595,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 };
 
                 setState(() {
-                  // 중복 방지: 해당 사원의 기존 기록 제거 후 최신 기록 1건만 등록
                   _globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((item) => item['empId'] == widget.employeeId);
                   _globalScheduleMap[dateKey]!.add(record);
                 });
@@ -618,7 +613,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 근무/휴가 신청 다이얼로그
   void _showAddWorkDialog() {
     if (_selectedDate == null) return;
 
@@ -730,7 +724,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   final contentStr = '주말 $weekendOption ${note.isNotEmpty ? '($note)' : ''}';
 
                   if (requiresApproval) {
-                    // 중복 승인 요청 방지 (이전 요청 제거 후 신규 1건 등록)
                     _approvalRequests.removeWhere((r) => r['date'] == dateKey && r['empId'] == widget.employeeId);
 
                     final req = {
@@ -766,7 +759,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       'content': contentStr,
                     };
                     setState(() {
-                      // 중복 방지: 동일 사원의 이전 등록건 삭제 후 최신 1건만 등록
                       _globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((item) => item['empId'] == widget.employeeId);
                       _globalScheduleMap[dateKey]!.add(record);
                     });
@@ -797,7 +789,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             title: Text('근무/휴가 신청 ($dateKey)'),
             content: SingleChildScrollView(
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisSize: MyAxisSize.min,
                 children: [
                   if (requiresApproval)
                     Container(
@@ -960,7 +952,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       'content': details,
                     };
                     setState(() {
-                      // 중복 방지: 동일 사원의 이전 등록건 삭제 후 최신 1건만 등록
                       _globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((item) => item['empId'] == widget.employeeId);
                       _globalScheduleMap[dateKey]!.add(record);
                     });
@@ -1022,7 +1013,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         ? rawList
         : rawList.where((item) => item['empId'] == widget.employeeId).toList();
 
-    // 내가 요청한 승인 대기 건
     final myPendingList = _approvalRequests
         .where((req) => req['date'] == selectedKey && (widget.isAdmin || req['empId'] == widget.employeeId))
         .toList();
@@ -1176,7 +1166,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 2주 안내 배너
             Container(
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1198,8 +1187,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 ],
               ),
             ),
-
-            // 공지사항 카드
             Card(
               color: Colors.amber.shade50,
               elevation: 2,
@@ -1234,8 +1221,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               ),
             ),
             const SizedBox(height: 12),
-
-            // 월 이동 헤더
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1258,13 +1243,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               ],
             ),
             const SizedBox(height: 8),
-
-            // 캘린더 그리드
             _buildCalendarGrid(),
-
             const SizedBox(height: 16),
-
-            // 상세 현황 카드
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1319,8 +1299,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       ],
                     ),
                     const Divider(height: 24),
-
-                    // 승인 대기 건 목록
                     if (myPendingList.isNotEmpty) ...[
                       const Text('⏳ 관리자 승인 대기 건', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
                       const SizedBox(height: 6),
@@ -1346,7 +1324,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                           )),
                       const SizedBox(height: 10),
                     ],
-
                     if (displayList.isEmpty && myPendingList.isEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 16.0),
@@ -1531,7 +1508,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   }
 }
 
-// 4. [관리자 전용] 결재함 (추가 및 삭제 요청 승인/반려 처리)
+// 4. 결재함
 class AdminApprovalScreen extends StatefulWidget {
   final List<Map<String, String>> approvalRequests;
   final Map<String, List<Map<String, String>>> scheduleMap;
@@ -1560,7 +1537,6 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
       if (actionType == '삭제요청') {
         widget.scheduleMap[dateKey]?.removeWhere((element) => element['empId'] == req['empId']);
       } else {
-        // 기존 건 제거 후 추가하여 중복 방지
         final record = {
           'empId': req['empId']!,
           'empName': req['empName']!,
@@ -1687,7 +1663,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
   }
 }
 
-// 5. 근무표 사진 뷰어 화면
+// 5. 사진 뷰어
 class RosterImageScreen extends StatefulWidget {
   final bool isAdmin;
   final String? currentImageBase64;
@@ -1930,7 +1906,9 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
                             onPressed: () {
                               setState(() {
                                 final date = item['date']!;
-                                widget.scheduleMap[date]?.removeWhere((element) => element['empId'] == item['empId']);
+                                widget.scheduleMap[date]?.removeWhere((element) =>
+                                    element['empId'] == item['empId'] &&
+                                    element['content'] == item['content']);
                               });
                               widget.onScheduleUpdated();
                             },
