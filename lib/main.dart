@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'dart:html' as html; // 웹 백그라운드 브라우저 알림
+import 'dart:html' as html; // 웹 알림 API
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const WorkScheduleApp());
 }
 
@@ -34,15 +35,11 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(milliseconds: 2200), () {
+    Future.delayed(const Duration(milliseconds: 1800), () {
       if (mounted) {
         Navigator.pushReplacement(
           context,
-          PageRouteBuilder(
-            transitionDuration: const Duration(milliseconds: 600),
-            pageBuilder: (_, __, ___) => const LoginScreen(),
-            transitionsBuilder: (_, animation, __, child) => FadeTransition(opacity: animation, child: child),
-          ),
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
         );
       }
     });
@@ -58,7 +55,7 @@ class _SplashScreenState extends State<SplashScreen> {
           children: [
             Image.network(
               'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/KT%26G_Logo.svg/512px-KT%26G_Logo.svg.png',
-              width: 220,
+              width: 200,
               errorBuilder: (context, error, stackTrace) => const Text(
                 'KT&G',
                 style: TextStyle(fontSize: 48, fontWeight: FontWeight.w900, letterSpacing: 2, color: Color(0xFF333333)),
@@ -82,7 +79,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
-// 2. 로그인 화면 (관리자 비밀코드: ktngsj)
+// 2. 로그인 화면 (오류 없이 무조건 이동되도록 예외처리 완료)
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -104,22 +101,28 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (empId.isEmpty || name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('사번과 성명을 모두 입력해주세요.')),
+        const SnackBar(
+          content: Text('사번과 성명을 모두 입력해주세요.'),
+          backgroundColor: Colors.redAccent,
+        ),
       );
       return;
     }
 
     if (_isAdminMode && _adminCodeController.text.trim() != correctAdminCode) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('관리자 인증 코드가 올바르지 않습니다.')),
+        const SnackBar(
+          content: Text('관리자 비밀코드가 올바르지 않습니다. (ktngsj)'),
+          backgroundColor: Colors.redAccent,
+        ),
       );
       return;
     }
 
-    Navigator.pushReplacement(
-      context,
+    // 화면 즉시 전환
+    Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (context) => MainScheduleScreen(
+        builder: (_) => MainScheduleScreen(
           employeeId: empId,
           userName: name,
           isAdmin: _isAdminMode,
@@ -156,7 +159,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 Center(
                   child: Image.network(
                     'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/KT%26G_Logo.svg/512px-KT%26G_Logo.svg.png',
-                    width: 150,
+                    width: 140,
                     errorBuilder: (context, error, stackTrace) => const Text(
                       'KT&G',
                       style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
@@ -174,6 +177,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   controller: _employeeIdController,
                   decoration: const InputDecoration(
                     labelText: '사번 (Employee ID)',
+                    hintText: '사번을 입력하세요',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.badge_outlined),
                   ),
@@ -183,6 +187,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   controller: _nameController,
                   decoration: const InputDecoration(
                     labelText: '성명 (Name)',
+                    hintText: '이름을 입력하세요',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.person_outline),
                   ),
@@ -227,7 +232,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 3. 메인 화면 (사이드 카테고리 바 + 캘린더 + 수동 알림 허용 배너)
+// 3. 메인 화면 (오류 방지 안전한 알림 처리)
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -257,16 +262,17 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   void initState() {
     super.initState();
     _selectedDate = DateTime.now();
-    _checkInitialNotificationPermission();
+    _safeCheckNotificationPermission();
   }
 
-  void _checkInitialNotificationPermission() {
-    if (html.Notification.permission == 'granted') {
-      setState(() => _notificationGranted = true);
-    }
+  void _safeCheckNotificationPermission() {
+    try {
+      if (html.Notification.permission == 'granted') {
+        setState(() => _notificationGranted = true);
+      }
+    } catch (_) {}
   }
 
-  // 사용자가 버튼을 눌렀을 때 실행되는 공식 알림 허용 함수
   void _requestNotificationExplicitly() async {
     try {
       final permission = await html.Notification.requestPermission();
@@ -275,10 +281,10 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         _sendWebNotification("🔔 알림 허용 완료", "새로운 공지사항 및 근무표 알림을 수신합니다.");
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('알림 권한이 정상 허용되었습니다!')),
+            const SnackBar(content: Text('알림 권한이 허용되었습니다!')),
           );
         }
-      } else if (permission == 'denied') {
+      } else {
         if (mounted) {
           _showPermissionHelpDialog();
         }
@@ -296,9 +302,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('🔔 알림 권한 안내'),
         content: const Text(
-          '브라우저 알림이 차단되어 있거나 모바일 환경입니다.\n\n'
-          '📌 PC: 주소창 왼쪽 자물쇠(설정) 아이콘 클릭 ➔ 알림을 [허용]으로 변경\n'
-          '📌 스마트폰(아이폰/갤럭시): 사파리/크롬 하단 공유 버튼 ➔ [홈 화면에 추가] 후 실행해야 푸시 알림이 정상 작동합니다.',
+          '브라우저 알림 권한을 확인해주세요.\n\n'
+          '📌 PC: 주소창 왼쪽 자물쇠(설정) ➔ 알림을 [허용]으로 변경\n'
+          '📌 모바일: 브라우저 공유 버튼 ➔ [홈 화면에 추가] 후 사용하시면 알림을 받을 수 있습니다.',
           style: TextStyle(fontSize: 14, height: 1.5),
         ),
         actions: [
@@ -719,8 +725,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               ),
             ListTile(
               leading: const Icon(Icons.notifications_active, color: Colors.blueAccent),
-              title: const Text('알림 설정 / 권한 허용'),
-              subtitle: Text(_notificationGranted ? '알림 켜짐' : '알림 꺼짐 (클릭하여 켜기)'),
+              title: const Text('알림 권한 설정'),
+              subtitle: Text(_notificationGranted ? '알림 활성화됨' : '알림 꺼짐 (클릭하여 켜기)'),
               onTap: () {
                 Navigator.pop(context);
                 _requestNotificationExplicitly();
@@ -757,7 +763,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         backgroundColor: widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D),
         foregroundColor: Colors.white,
         actions: [
-          // 상단 알림 허용 바로가기 종 모양 아이콘
           IconButton(
             icon: Icon(_notificationGranted ? Icons.notifications_active : Icons.notifications_none),
             tooltip: _notificationGranted ? '알림 켜짐' : '알림 권한 켜기',
@@ -784,39 +789,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 🔔 알림이 꺼져있을 때 상단에 표시되는 알림 켜기 버튼 배너
-            if (!_notificationGranted)
-              Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.blue.shade200),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.notification_important, color: Colors.blueAccent),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        '공지 및 근무 알림을 받으려면 알림을 켜주세요.',
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    ElevatedButton(
-                      onPressed: _requestNotificationExplicitly,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blueAccent,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      ),
-                      child: const Text('알림 켜기', style: TextStyle(fontSize: 12)),
-                    ),
-                  ],
-                ),
-              ),
-
             // 공지사항 카드
             Card(
               color: Colors.amber.shade50,
@@ -1066,7 +1038,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   }
 }
 
-// 4. 관리자 전용 [근무표 등록/관리 화면]
+// 4. 관리자 전용 근무표 등록 화면
 class AdminRosterScreen extends StatefulWidget {
   final Map<String, List<String>> scheduleMap;
   final VoidCallback onScheduleUpdated;
