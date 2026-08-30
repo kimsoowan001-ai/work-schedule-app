@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'dart:html' as html; // 웹 알림 API
+import 'dart:html' as html;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,7 +23,7 @@ class WorkScheduleApp extends StatelessWidget {
   }
 }
 
-// 1. KT&G 스플래시 화면
+// 1. KT&G 인트로 화면
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -79,7 +79,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
-// 2. 로그인 화면 (오류 없이 무조건 이동되도록 예외처리 완료)
+// 2. 로그인 화면 (관리자 비밀코드: ktngsj)
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -101,25 +101,18 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (empId.isEmpty || name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('사번과 성명을 모두 입력해주세요.'),
-          backgroundColor: Colors.redAccent,
-        ),
+        const SnackBar(content: Text('사번과 성명을 모두 입력해주세요.'), backgroundColor: Colors.redAccent),
       );
       return;
     }
 
     if (_isAdminMode && _adminCodeController.text.trim() != correctAdminCode) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('관리자 비밀코드가 올바르지 않습니다. (ktngsj)'),
-          backgroundColor: Colors.redAccent,
-        ),
+        const SnackBar(content: Text('관리자 비밀코드가 올바르지 않습니다. (ktngsj)'), backgroundColor: Colors.redAccent),
       );
       return;
     }
 
-    // 화면 즉시 전환
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => MainScheduleScreen(
@@ -232,7 +225,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 3. 메인 화면 (오류 방지 안전한 알림 처리)
+// 3. 메인 스케줄 화면 (관리자는 전체 사원 내역 조회 가능)
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -256,7 +249,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   DateTime _currentMonth = DateTime.now();
   DateTime? _selectedDate;
 
-  final Map<String, List<String>> _scheduleMap = {};
+  // 전체 공유 일정 저장소 (날짜 Key : List of entries)
+  static final Map<String, List<Map<String, String>>> _globalScheduleMap = {};
 
   @override
   void initState() {
@@ -303,8 +297,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         title: const Text('🔔 알림 권한 안내'),
         content: const Text(
           '브라우저 알림 권한을 확인해주세요.\n\n'
-          '📌 PC: 주소창 왼쪽 자물쇠(설정) ➔ 알림을 [허용]으로 변경\n'
-          '📌 모바일: 브라우저 공유 버튼 ➔ [홈 화면에 추가] 후 사용하시면 알림을 받을 수 있습니다.',
+          '📌 PC: 주소창 왼쪽 설정 아이콘 ➔ 알림을 [허용]으로 변경\n'
+          '📌 모바일: 브라우저 공유 버튼 ➔ [홈 화면에 추가] 후 실행해야 알림을 정상 수신할 수 있습니다.',
           style: TextStyle(fontSize: 14, height: 1.5),
         ),
         actions: [
@@ -418,7 +412,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Text(
-                    '⚠️ 지난 날짜는 사전 신청이 불가능하며, 실제 근무(오전/오후) 및 연장근무 기록용으로만 작성됩니다.',
+                    '⚠️ 지난 날짜는 실제 근무(오전/오후) 및 연장근무 기록용으로 작성됩니다.',
                     style: TextStyle(fontSize: 12, color: Colors.brown),
                   ),
                 ),
@@ -446,8 +440,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   controller: overtimeController,
                   maxLines: 3,
                   decoration: const InputDecoration(
-                    labelText: '연장 근무 및 비고 확인용 메모',
-                    hintText: '예: 연장근무 2시간 진행 (18:00~20:00) / 특이사항 없음',
+                    labelText: '연장 근무 및 비고 메모',
+                    hintText: '예: 연장근무 2시간 진행 (18:00~20:00)',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.edit_note),
                   ),
@@ -460,10 +454,15 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             ElevatedButton(
               onPressed: () {
                 final note = overtimeController.text.trim();
-                final entry = "[${widget.userName}(${widget.employeeId})] (실제기록) $shiftTime ${note.isNotEmpty ? ' | 연장/메모: $note' : ''}";
+                final record = {
+                  'empId': widget.employeeId,
+                  'empName': widget.userName,
+                  'type': '(실제기록)',
+                  'content': '$shiftTime ${note.isNotEmpty ? ' | 연장/메모: $note' : ''}',
+                };
 
                 setState(() {
-                  _scheduleMap.putIfAbsent(dateKey, () => []).add(entry);
+                  _globalScheduleMap.putIfAbsent(dateKey, () => []).add(record);
                 });
 
                 Navigator.pop(ctx);
@@ -527,9 +526,16 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
               ElevatedButton(
                 onPressed: () {
-                  final entry = "[${widget.userName}(${widget.employeeId})] 주말 $weekendOption ${weekendNoteController.text.isNotEmpty ? '(${weekendNoteController.text})' : ''}";
+                  final note = weekendNoteController.text.trim();
+                  final record = {
+                    'empId': widget.employeeId,
+                    'empName': widget.userName,
+                    'type': '주말설정',
+                    'content': '주말 $weekendOption ${note.isNotEmpty ? '($note)' : ''}',
+                  };
+
                   setState(() {
-                    _scheduleMap.putIfAbsent(dateKey, () => []).add(entry);
+                    _globalScheduleMap.putIfAbsent(dateKey, () => []).add(record);
                   });
 
                   _sendWebNotification(
@@ -586,9 +592,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.timer_outlined),
                       ),
-                      items: timeOptions.map((time) {
-                        return DropdownMenuItem(value: time, child: Text(time));
-                      }).toList(),
+                      items: timeOptions.map((time) => DropdownMenuItem(value: time, child: Text(time))).toList(),
                       onChanged: (val) {
                         if (val != null) setDialogState(() => selectedLeaveTime = val);
                       },
@@ -642,10 +646,15 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     details += " - ${customNoteController.text.trim()}";
                   }
 
-                  final entry = "[${widget.userName}(${widget.employeeId})] $details";
+                  final record = {
+                    'empId': widget.employeeId,
+                    'empName': widget.userName,
+                    'type': selectedCategory,
+                    'content': details,
+                  };
 
                   setState(() {
-                    _scheduleMap.putIfAbsent(dateKey, () => []).add(entry);
+                    _globalScheduleMap.putIfAbsent(dateKey, () => []).add(record);
                   });
 
                   _sendWebNotification(
@@ -672,11 +681,22 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       context,
       MaterialPageRoute(
         builder: (ctx) => AdminRosterScreen(
-          scheduleMap: _scheduleMap,
-          onScheduleUpdated: () {
-            setState(() {});
-          },
+          scheduleMap: _globalScheduleMap,
+          onScheduleUpdated: () => setState(() {}),
           sendNotification: _sendWebNotification,
+        ),
+      ),
+    );
+  }
+
+  // 관리자 전용 전체 사원 신청/근무 목록 조회 페이지 이동
+  void _openAllEmployeesOverviewScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => AllEmployeesOverviewScreen(
+          scheduleMap: _globalScheduleMap,
+          onScheduleUpdated: () => setState(() {}),
         ),
       ),
     );
@@ -685,7 +705,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   @override
   Widget build(BuildContext context) {
     final selectedKey = _selectedDate != null ? _formatDateKey(_selectedDate!) : '';
-    final dayList = _scheduleMap[selectedKey] ?? [];
+    final rawList = _globalScheduleMap[selectedKey] ?? [];
+
+    // [핵심 로직]: 관리자면 전체 리스트 노출, 일반 사원이면 본인 사번의 데이터만 필터링
+    final displayList = widget.isAdmin
+        ? rawList
+        : rawList.where((item) => item['empId'] == widget.employeeId).toList();
+
     final bool isPast = _selectedDate != null ? _isPastDate(_selectedDate!) : false;
 
     return Scaffold(
@@ -694,14 +720,14 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           padding: EdgeInsets.zero,
           children: [
             UserAccountsDrawerHeader(
-              decoration: const BoxDecoration(
-                color: Color(0xFF1B365D),
+              decoration: BoxDecoration(
+                color: widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D),
               ),
               currentAccountPicture: CircleAvatar(
                 backgroundColor: Colors.white,
                 child: Text(
                   widget.userName.isNotEmpty ? widget.userName[0] : 'U',
-                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1B365D)),
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D)),
                 ),
               ),
               accountName: Text('${widget.userName} (${widget.isAdmin ? "관리자" : "사원"})', style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -712,15 +738,28 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               title: const Text('근무 캘린더 (메인)'),
               onTap: () => Navigator.pop(context),
             ),
+            // 관리자 전용 메뉴 1: 전체 사원 근무표 등록
             if (widget.isAdmin)
               ListTile(
                 leading: const Icon(Icons.edit_calendar, color: Colors.indigo),
-                title: const Text('근무표 등록/관리', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
-                subtitle: const Text('전체 사원 공식 근무표 일괄 배정'),
+                title: const Text('공식 근무표 배정/등록', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+                subtitle: const Text('사원별 근무조 일괄 배정'),
                 trailing: const Icon(Icons.arrow_forward_ios, size: 14),
                 onTap: () {
                   Navigator.pop(context);
                   _openAdminScheduleRegistrationScreen();
+                },
+              ),
+            // 관리자 전용 메뉴 2: 전체 사원 근무 현황 집계표
+            if (widget.isAdmin)
+              ListTile(
+                leading: const Icon(Icons.people_alt, color: Colors.teal),
+                title: const Text('전체 사원 신청/근무 종합현황', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal)),
+                subtitle: const Text('모든 사원의 신청 내역 통합 관리'),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openAllEmployeesOverviewScreen();
                 },
               ),
             ListTile(
@@ -759,15 +798,16 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         ),
       ),
       appBar: AppBar(
-        title: Text('${widget.userName} (${widget.isAdmin ? "관리자" : "사원"})'),
+        title: Text('${widget.userName} (${widget.isAdmin ? "전체 관리자 모드" : "사원"})'),
         backgroundColor: widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D),
         foregroundColor: Colors.white,
         actions: [
-          IconButton(
-            icon: Icon(_notificationGranted ? Icons.notifications_active : Icons.notifications_none),
-            tooltip: _notificationGranted ? '알림 켜짐' : '알림 권한 켜기',
-            onPressed: _requestNotificationExplicitly,
-          ),
+          if (widget.isAdmin)
+            IconButton(
+              icon: const Icon(Icons.people_alt),
+              tooltip: '전체 사원 종합 현황표',
+              onPressed: _openAllEmployeesOverviewScreen,
+            ),
           if (widget.isAdmin)
             IconButton(
               icon: const Icon(Icons.post_add),
@@ -854,7 +894,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
             const SizedBox(height: 16),
 
-            // 상세 현황
+            // 상세 현황 카드 (관리자: 전체 사원 내역 / 일반: 본인 내역)
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -869,7 +909,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         Row(
                           children: [
                             Text(
-                              '📅 $selectedKey 현황',
+                              widget.isAdmin ? '👥 $selectedKey 전체 사원 근무 현황' : '📅 $selectedKey 내 신청 내역',
                               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                             ),
                             if (isPast)
@@ -887,43 +927,73 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         ElevatedButton.icon(
                           onPressed: isPast ? _showPastWorkRecordDialog : _showAddWorkDialog,
                           icon: Icon(isPast ? Icons.edit_calendar : Icons.add_task, size: 18),
-                          label: Text(isPast ? '지난 근무/연장 확인 기록' : '근무/휴가 신청'),
+                          label: Text(isPast ? '지난 근무 기록' : '근무/휴가 신청'),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: isPast ? Colors.blueGrey : const Color(0xFF1B365D),
+                            backgroundColor: isPast ? Colors.blueGrey : (widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D)),
                             foregroundColor: Colors.white,
                           ),
                         ),
                       ],
                     ),
                     const Divider(height: 24),
-                    if (dayList.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 16.0),
+                    if (displayList.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 16.0),
                         child: Center(
-                          child: Text('등록된 내역이 없습니다.', style: TextStyle(color: Colors.grey)),
+                          child: Text(
+                            widget.isAdmin ? '해당 날짜에 등록된 전체 사원 내역이 없습니다.' : '해당 날짜에 등록된 내 근무 일정이 없습니다.',
+                            style: const TextStyle(color: Colors.grey),
+                          ),
                         ),
                       )
                     else
                       ListView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        itemCount: dayList.length,
-                        itemBuilder: (ctx, idx) => ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: CircleAvatar(
-                            backgroundColor: dayList[idx].contains("공식근무")
-                                ? Colors.indigo
-                                : (dayList[idx].contains("(실제기록)") ? Colors.blueGrey : const Color(0xFF1B365D)),
-                            child: Icon(
-                              dayList[idx].contains("공식근무")
-                                  ? Icons.assignment_turned_in
-                                  : (dayList[idx].contains("(실제기록)") ? Icons.history : Icons.event_note),
-                              color: Colors.white,
-                              size: 18,
+                        itemCount: displayList.length,
+                        itemBuilder: (ctx, idx) {
+                          final item = displayList[idx];
+                          final isOfficial = item['type'] == '공식근무';
+                          final isActual = item['type'] == '(실제기록)';
+
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            decoration: BoxDecoration(
+                              color: isOfficial ? Colors.indigo.shade50 : (isActual ? Colors.grey.shade100 : Colors.blue.shade50),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey.shade200),
                             ),
-                          ),
-                          title: Text(dayList[idx], style: const TextStyle(fontWeight: FontWeight.w500)),
-                        ),
+                            child: ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: isOfficial ? Colors.indigo : (isActual ? Colors.blueGrey : const Color(0xFF1B365D)),
+                                child: Icon(
+                                  isOfficial ? Icons.assignment_turned_in : (isActual ? Icons.history : Icons.event_available),
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                              ),
+                              title: Text(
+                                '[${item['empName']}(${item['empId']})] ${item['content']}',
+                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                              ),
+                              subtitle: Text(
+                                '구분: ${item['type']}',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                              ),
+                              trailing: widget.isAdmin
+                                  ? IconButton(
+                                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                      tooltip: '관리자 삭제',
+                                      onPressed: () {
+                                        setState(() {
+                                          _globalScheduleMap[selectedKey]?.remove(item);
+                                        });
+                                      },
+                                    )
+                                  : null,
+                            ),
+                          );
+                        },
                       ),
                   ],
                 ),
@@ -987,7 +1057,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   _selectedDate!.year == cellDate.year &&
                   _selectedDate!.month == cellDate.month &&
                   _selectedDate!.day == cellDate.day;
-              final hasData = (_scheduleMap[cellKey]?.isNotEmpty ?? false);
+
+              final allList = _globalScheduleMap[cellKey] ?? [];
+              final filteredList = widget.isAdmin
+                  ? allList
+                  : allList.where((item) => item['empId'] == widget.employeeId).toList();
+
+              final hasData = filteredList.isNotEmpty;
               final isPast = _isPastDate(cellDate);
 
               return InkWell(
@@ -1000,7 +1076,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         ? (isPast ? Colors.blueGrey.withOpacity(0.2) : const Color(0xFF1B365D).withOpacity(0.15))
                         : (isPast ? Colors.grey.shade100 : Colors.transparent),
                     border: isSelected
-                        ? Border.all(color: isPast ? Colors.blueGrey : const Color(0xFF1B365D), width: 1.5)
+                        ? Border.all(color: isPast ? Colors.blueGrey : (widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D)), width: 1.5)
                         : null,
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -1019,11 +1095,14 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       if (hasData)
                         Container(
                           margin: const EdgeInsets.only(top: 3),
-                          width: 6,
-                          height: 6,
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                           decoration: BoxDecoration(
-                            color: isPast ? Colors.blueGrey : const Color(0xFFE35205),
-                            shape: BoxShape.circle,
+                            color: widget.isAdmin ? Colors.indigo : const Color(0xFFE35205),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            widget.isAdmin ? '${filteredList.length}건' : '●',
+                            style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold),
                           ),
                         ),
                     ],
@@ -1038,9 +1117,136 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   }
 }
 
-// 4. 관리자 전용 근무표 등록 화면
+// 4. [관리자 전용] 전체 사원 종합 현황표 (모든 날짜, 모든 사원의 근무/신청 내역 요약)
+class AllEmployeesOverviewScreen extends StatefulWidget {
+  final Map<String, List<Map<String, String>>> scheduleMap;
+  final VoidCallback onScheduleUpdated;
+
+  const AllEmployeesOverviewScreen({
+    super.key,
+    required this.scheduleMap,
+    required this.onScheduleUpdated,
+  });
+
+  @override
+  State<AllEmployeesOverviewScreen> createState() => _AllEmployeesOverviewScreenState();
+}
+
+class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen> {
+  String _searchQuery = "";
+
+  @override
+  Widget build(BuildContext context) {
+    // 모든 날짜의 데이터를 리스트로 펼치기
+    List<Map<String, String>> flattenedList = [];
+    widget.scheduleMap.forEach((date, items) {
+      for (var item in items) {
+        flattenedList.add({
+          'date': date,
+          'empId': item['empId'] ?? '',
+          'empName': item['empName'] ?? '',
+          'type': item['type'] ?? '',
+          'content': item['content'] ?? '',
+        });
+      }
+    });
+
+    // 날짜 기준 내림차순 정렬
+    flattenedList.sort((a, b) => b['date']!.compareTo(a['date']!));
+
+    // 검색 필터 적용 (성명 또는 사번)
+    if (_searchQuery.isNotEmpty) {
+      flattenedList = flattenedList.where((item) =>
+          item['empName']!.contains(_searchQuery) ||
+          item['empId']!.contains(_searchQuery) ||
+          item['date']!.contains(_searchQuery) ||
+          item['content']!.contains(_searchQuery)).toList();
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('👥 전체 사원 근무/신청 종합 현황'),
+        backgroundColor: Colors.teal,
+        foregroundColor: Colors.white,
+      ),
+      body: Column(
+        children: [
+          // 상단 검색창
+          Container(
+            padding: const EdgeInsets.all(16.0),
+            color: Colors.white,
+            child: TextField(
+              decoration: InputDecoration(
+                hintText: '사원명, 사번, 날짜, 신청 항목 검색...',
+                prefixIcon: const Icon(Icons.search, color: Colors.teal),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+              onChanged: (val) => setState(() => _searchQuery = val.trim()),
+            ),
+          ),
+          const Divider(height: 1),
+          // 종합 리스트
+          Expanded(
+            child: flattenedList.isEmpty
+                ? const Center(child: Text('등록된 근무/신청 내역이 없습니다.', style: TextStyle(color: Colors.grey, fontSize: 16)))
+                : ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: flattenedList.length,
+                    itemBuilder: (ctx, idx) {
+                      final item = flattenedList[idx];
+                      return Card(
+                        elevation: 1.5,
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: item['type'] == '공식근무'
+                                ? Colors.indigo
+                                : (item['type'] == '(실제기록)' ? Colors.blueGrey : Colors.teal),
+                            child: Text(
+                              item['empName']!.isNotEmpty ? item['empName']![0] : 'U',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          title: Row(
+                            children: [
+                              Text(item['date']!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.indigo)),
+                              const SizedBox(width: 8),
+                              Text('${item['empName']} (${item['empId']})', style: const TextStyle(fontWeight: FontWeight.w600)),
+                            ],
+                          ),
+                          subtitle: Padding(
+                            padding: const EdgeInsets.only(top: 4.0),
+                            child: Text('${item['content']}', style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                            tooltip: '삭제',
+                            onPressed: () {
+                              setState(() {
+                                final date = item['date']!;
+                                widget.scheduleMap[date]?.removeWhere((element) =>
+                                    element['empId'] == item['empId'] &&
+                                    element['content'] == item['content']);
+                              });
+                              widget.onScheduleUpdated();
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// 5. [관리자 전용] 공식 근무표 배정 화면
 class AdminRosterScreen extends StatefulWidget {
-  final Map<String, List<String>> scheduleMap;
+  final Map<String, List<Map<String, String>>> scheduleMap;
   final VoidCallback onScheduleUpdated;
   final Function(String title, String body) sendNotification;
 
@@ -1090,15 +1296,20 @@ class _AdminRosterScreenState extends State<AdminRosterScreen> {
     }
 
     final dateKey = _formatDate(_selectedDate);
-    final entry = "[$empName($empId)] [공식근무] $_shiftType ${note.isNotEmpty ? '($note)' : ''}";
+    final record = {
+      'empId': empId,
+      'empName': empName,
+      'type': '공식근무',
+      'content': '$_shiftType ${note.isNotEmpty ? '($note)' : ''}',
+    };
 
     setState(() {
-      widget.scheduleMap.putIfAbsent(dateKey, () => []).add(entry);
+      widget.scheduleMap.putIfAbsent(dateKey, () => []).add(record);
     });
     widget.onScheduleUpdated();
 
     widget.sendNotification(
-      "📋 [근무표 등록 알림]",
+      "📋 [공식 근무표 배정 알림]",
       "$dateKey $empName님의 공식 근무($_shiftType)가 등록되었습니다.",
     );
 
@@ -1107,7 +1318,7 @@ class _AdminRosterScreenState extends State<AdminRosterScreen> {
     _noteController.clear();
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('근무표가 등록되었으며 캘린더에 반영되었습니다.')),
+      const SnackBar(content: Text('근무표가 등록되었으며 전체 캘린더에 반영되었습니다.')),
     );
   }
 
@@ -1118,7 +1329,7 @@ class _AdminRosterScreenState extends State<AdminRosterScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('근무표 등록 및 배정 (관리자)'),
+        title: const Text('공식 근무표 배정/등록 (관리자)'),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
       ),
@@ -1238,27 +1449,30 @@ class _AdminRosterScreenState extends State<AdminRosterScreen> {
                     if (currentList.isEmpty)
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 16),
-                        child: Center(child: Text('해당 날짜에 등록된 근무표가 없습니다.', style: TextStyle(color: Colors.grey))),
+                        child: Center(child: Text('해당 날짜에 배정된 근무표가 없습니다.', style: TextStyle(color: Colors.grey))),
                       )
                     else
                       ListView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
                         itemCount: currentList.length,
-                        itemBuilder: (ctx, idx) => ListTile(
-                          leading: const Icon(Icons.check_circle, color: Colors.indigo),
-                          title: Text(currentList[idx]),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                            tooltip: '삭제',
-                            onPressed: () {
-                              setState(() {
-                                currentList.removeAt(idx);
-                              });
-                              widget.onScheduleUpdated();
-                            },
-                          ),
-                        ),
+                        itemBuilder: (ctx, idx) {
+                          final item = currentList[idx];
+                          return ListTile(
+                            leading: const Icon(Icons.check_circle, color: Colors.indigo),
+                            title: Text('[${item['empName']}(${item['empId']})] ${item['content']}'),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                              tooltip: '삭제',
+                              onPressed: () {
+                                setState(() {
+                                  currentList.removeAt(idx);
+                                });
+                                widget.onScheduleUpdated();
+                              },
+                            ),
+                          );
+                        },
                       ),
                   ],
                 ),
