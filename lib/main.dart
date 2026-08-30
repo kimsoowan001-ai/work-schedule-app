@@ -11,18 +11,78 @@ class WorkScheduleApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '근무 스케줄 관리',
+      title: 'KT&G 근무 스케줄 관리',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueAccent),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1B365D)),
         useMaterial3: true,
       ),
-      home: const LoginScreen(),
+      home: const SplashScreen(),
     );
   }
 }
 
-// 1. 로그인 화면 (사번 + 성명 + 관리자 코드: ktngsj)
+// 1. KT&G 스플래시(시작/인트로) 화면
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(const Duration(milliseconds: 2200), () {
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          PageRouteBuilder(
+            transitionDuration: const Duration(milliseconds: 600),
+            pageBuilder: (_, __, ___) => const LoginScreen(),
+            transitionsBuilder: (_, animation, __, child) => FadeTransition(opacity: animation, child: child),
+          ),
+        );
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Image.network(
+              'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/KT%26G_Logo.svg/512px-KT%26G_Logo.svg.png',
+              width: 220,
+              errorBuilder: (context, error, stackTrace) => const Text(
+                'KT&G',
+                style: TextStyle(fontSize: 48, fontWeight: FontWeight.w900, letterSpacing: 2, color: Color(0xFF333333)),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              '근무 스케줄 관리 시스템',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B365D), letterSpacing: 1.2),
+            ),
+            const SizedBox(height: 36),
+            const SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(strokeWidth: 3, color: Color(0xFFE35205)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// 2. 로그인 화면 (사번 + 성명 + KT&G 로고 + 관리자 코드: ktngsj)
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -44,7 +104,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (empId.isEmpty || name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('사번과 이름을 모두 입력해주세요.')),
+        const SnackBar(content: Text('사번과 성명을 모두 입력해주세요.')),
       );
       return;
     }
@@ -71,7 +131,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F6FA),
+      backgroundColor: const Color(0xFFF4F6F9),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
@@ -93,12 +153,21 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Icon(Icons.calendar_month_rounded, size: 56, color: Colors.blueAccent),
+                Center(
+                  child: Image.network(
+                    'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/KT%26G_Logo.svg/512px-KT%26G_Logo.svg.png',
+                    width: 150,
+                    errorBuilder: (context, error, stackTrace) => const Text(
+                      'KT&G',
+                      style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 12),
                 const Text(
                   '근무 스케줄 관리',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF333333)),
                 ),
                 const SizedBox(height: 24),
                 TextField(
@@ -142,7 +211,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ElevatedButton(
                   onPressed: _login,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blueAccent,
+                    backgroundColor: const Color(0xFF1B365D),
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -158,7 +227,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 2. 메인 스케줄 + 캘린더 화면
+// 3. 메인 스케줄 + 캘린더 화면
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -176,55 +245,47 @@ class MainScheduleScreen extends StatefulWidget {
 }
 
 class _MainScheduleScreenState extends State<MainScheduleScreen> {
-  String _notice = "📢 근무 및 휴가 신청은 사전 등록 바랍니다. 지난 날짜는 실제 근무/연장 확인용으로 기록 가능합니다.";
+  String _notice = "📢 근무 및 휴가 신청은 사전 등록 바랍니다. 지난 날짜는 실제 근무(오전/오후) 및 연장 확인용으로 기록 가능합니다.";
   bool _notificationEnabled = false;
 
   DateTime _currentMonth = DateTime.now();
   DateTime? _selectedDate;
 
-  // 날짜별 일정 리스트
   final Map<String, List<String>> _scheduleMap = {};
 
   @override
   void initState() {
     super.initState();
     _selectedDate = DateTime.now();
+
+    // 사용자가 처음 화면에 들어오면 즉시 브라우저 알림 동의 요청
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _requestNotificationPermissionOnStart();
+    });
+  }
+
+  // 첫 접속 시 자동 알림 동의 요청
+  void _requestNotificationPermissionOnStart() async {
+    if (html.Notification.permission == 'default') {
+      final permission = await html.Notification.requestPermission();
+      if (permission == 'granted') {
+        setState(() => _notificationEnabled = true);
+        _sendWebNotification("🔔 KT&G 알림 수신 설정 완료", "새로운 공지사항 및 근무 알림을 실시간으로 수신합니다.");
+      }
+    } else if (html.Notification.permission == 'granted') {
+      setState(() => _notificationEnabled = true);
+    }
   }
 
   String _formatDateKey(DateTime d) {
     return "${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}";
   }
 
-  // 오늘 날짜인지/지난 날짜인지 판별 (시간 제외)
   bool _isPastDate(DateTime date) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final target = DateTime(date.year, date.month, date.day);
     return target.isBefore(today);
-  }
-
-  void _toggleNotification(bool enable) async {
-    if (enable) {
-      if (html.Notification.permission == 'granted') {
-        setState(() => _notificationEnabled = true);
-        _sendWebNotification("🔔 알림 설정 완료", "근무 등록 알림이 활성화되었습니다.");
-      } else {
-        final permission = await html.Notification.requestPermission();
-        if (permission == 'granted') {
-          setState(() => _notificationEnabled = true);
-          _sendWebNotification("🔔 알림 설정 완료", "근무 등록 알림이 활성화되었습니다.");
-        } else {
-          setState(() => _notificationEnabled = false);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('브라우저 알림 권한이 차단되었습니다.')),
-            );
-          }
-        }
-      }
-    } else {
-      setState(() => _notificationEnabled = false);
-    }
   }
 
   void _sendWebNotification(String title, String body) {
@@ -233,6 +294,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     }
   }
 
+  // 관리자 전용 공지사항 등록/수정 (저장 시 모든 사용자에게 알림 발송)
   void _showEditNoticeDialog() {
     final controller = TextEditingController(text: _notice);
     showDialog(
@@ -251,13 +313,21 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
           ElevatedButton(
             onPressed: () {
-              setState(() => _notice = controller.text.trim());
+              final newNotice = controller.text.trim();
+              setState(() => _notice = newNotice);
               Navigator.pop(ctx);
+
+              // 📢 공지사항 업데이트 즉시 브라우저 푸시 알림 발송!
+              _sendWebNotification(
+                "📢 [KT&G 공지사항 등록]",
+                newNotice.isNotEmpty ? newNotice : "새로운 공지사항이 등록되었습니다.",
+              );
+
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('공지사항이 수정되었습니다.')),
+                const SnackBar(content: Text('공지사항이 수정되었으며 사용자 알림이 발송되었습니다.')),
               );
             },
-            child: const Text('저장'),
+            child: const Text('저장 및 알림 전송'),
           ),
         ],
       ),
@@ -282,7 +352,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     return options;
   }
 
-  // --- 1. 지난 날짜 근무/연장 확인용 기록 다이얼로그 ---
+  // 지난 날짜 기록 창
   void _showPastWorkRecordDialog() {
     if (_selectedDate == null) return;
     final dateKey = _formatDateKey(_selectedDate!);
@@ -373,11 +443,10 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // --- 2. 오늘 및 미래 날짜 신청 다이얼로그 (평일/주말) ---
+  // 오늘/미래 근무 신청 창
   void _showAddWorkDialog() {
     if (_selectedDate == null) return;
 
-    // 만약 지난 날짜라면 안내 후 지난 근무 기록창으로 연결
     if (_isPastDate(_selectedDate!)) {
       _showPastWorkRecordDialog();
       return;
@@ -387,7 +456,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     final dateKey = _formatDateKey(_selectedDate!);
 
     if (isWeekend) {
-      // 주말 다이얼로그 (근무 가능 / 불가능)
       String weekendOption = "근무 가능";
       final weekendNoteController = TextEditingController();
 
@@ -448,7 +516,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         ),
       );
     } else {
-      // 평일 다이얼로그 (연차, 체력단련, 가족사랑, 건강검진, 기타)
       String selectedCategory = "연차";
       String selectedLeaveTime = "8시간";
       final timeOptions = _generateTimeOptions();
@@ -578,7 +645,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text('${widget.userName} (${widget.isAdmin ? "관리자" : "사원"})'),
-        backgroundColor: widget.isAdmin ? Colors.indigo : Colors.blueAccent,
+        backgroundColor: widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D),
         foregroundColor: Colors.white,
         actions: [
           IconButton(
@@ -596,7 +663,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 공지사항 카드
+            // 공지사항 카드 (관리자만 수정 및 전송)
             Card(
               color: Colors.amber.shade50,
               elevation: 2,
@@ -619,7 +686,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         if (widget.isAdmin)
                           IconButton(
                             icon: const Icon(Icons.edit, color: Colors.blueAccent),
-                            tooltip: '공지 수정 (관리자 전용)',
+                            tooltip: '공지 수정 및 알림 발송 (관리자 전용)',
                             onPressed: _showEditNoticeDialog,
                           ),
                       ],
@@ -631,26 +698,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               ),
             ),
             const SizedBox(height: 12),
-
-            // 관리자 전용 알림
-            if (widget.isAdmin) ...[
-              Card(
-                color: Colors.blue.shade50,
-                elevation: 1,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: SwitchListTile(
-                  secondary: Icon(
-                    _notificationEnabled ? Icons.notifications_active : Icons.notifications_off,
-                    color: _notificationEnabled ? Colors.blueAccent : Colors.grey,
-                  ),
-                  title: const Text('근무 등록 백그라운드 알림', style: TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: const Text('창을 닫거나 다른 작업을 해도 브라우저 팝업 알림 수신'),
-                  value: _notificationEnabled,
-                  onChanged: _toggleNotification,
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
 
             // 월 이동 헤더
             Row(
@@ -681,7 +728,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
             const SizedBox(height: 16),
 
-            // 선택 날짜 상세 현황
+            // 상세 현황
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -711,13 +758,12 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                               ),
                           ],
                         ),
-                        // 지난 날짜면 '지난 근무/연장 기록' 버튼, 오늘/미래면 '신청' 버튼
                         ElevatedButton.icon(
                           onPressed: isPast ? _showPastWorkRecordDialog : _showAddWorkDialog,
                           icon: Icon(isPast ? Icons.edit_calendar : Icons.add_task, size: 18),
                           label: Text(isPast ? '지난 근무/연장 확인 기록' : '근무/휴가 신청'),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: isPast ? Colors.blueGrey : Colors.blueAccent,
+                            backgroundColor: isPast ? Colors.blueGrey : const Color(0xFF1B365D),
                             foregroundColor: Colors.white,
                           ),
                         ),
@@ -739,7 +785,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         itemBuilder: (ctx, idx) => ListTile(
                           contentPadding: EdgeInsets.zero,
                           leading: CircleAvatar(
-                            backgroundColor: dayList[idx].contains("(실제기록)") ? Colors.blueGrey : Colors.blueAccent,
+                            backgroundColor: dayList[idx].contains("(실제기록)") ? Colors.blueGrey : const Color(0xFF1B365D),
                             child: Icon(dayList[idx].contains("(실제기록)") ? Icons.history : Icons.event_note, color: Colors.white, size: 18),
                           ),
                           title: Text(dayList[idx], style: const TextStyle(fontWeight: FontWeight.w500)),
@@ -817,10 +863,10 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   margin: const EdgeInsets.all(2),
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? (isPast ? Colors.blueGrey.withOpacity(0.2) : Colors.blueAccent.withOpacity(0.2))
+                        ? (isPast ? Colors.blueGrey.withOpacity(0.2) : const Color(0xFF1B365D).withOpacity(0.15))
                         : (isPast ? Colors.grey.shade100 : Colors.transparent),
                     border: isSelected
-                        ? Border.all(color: isPast ? Colors.blueGrey : Colors.blueAccent, width: 1.5)
+                        ? Border.all(color: isPast ? Colors.blueGrey : const Color(0xFF1B365D), width: 1.5)
                         : null,
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -842,7 +888,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                           width: 6,
                           height: 6,
                           decoration: BoxDecoration(
-                            color: isPast ? Colors.blueGrey : Colors.orange,
+                            color: isPast ? Colors.blueGrey : const Color(0xFFE35205),
                             shape: BoxShape.circle,
                           ),
                         ),
