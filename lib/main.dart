@@ -359,15 +359,14 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     return target.isBefore(today);
   }
 
+  // 정확한 2주(0~14일) 판정 함수
   bool _isWithinTwoWeeks(DateTime date) {
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, day(date));
+    final today = DateTime(now.year, now.month, now.day);
     final target = DateTime(date.year, date.month, date.day);
     final diff = target.difference(today).inDays;
     return diff >= 0 && diff <= 14;
   }
-
-  static int day(DateTime d) => d.day;
 
   void _sendWebNotification(String title, String body) {
     try {
@@ -696,7 +695,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     TextField(
                       controller: approvalReasonController,
                       decoration: const InputDecoration(
-                        labelText: '2주 이내 변경/신청 사유 (필수)',
+                        labelText: '2주 이내 긴급 사유 (필수)',
                         hintText: '사유를 구체적으로 입력하세요',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.rate_review, color: Colors.deepOrange),
@@ -713,7 +712,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 onPressed: () {
                   if (requiresApproval && approvalReasonController.text.trim().isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('2주 이내 긴급 신청 사유를 입력해주세요.')),
+                      const SnackBar(content: Text('2주 이내 긴급 사유를 입력해주세요.')),
                     );
                     return;
                   }
@@ -744,7 +743,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('관리자에게 승인 요청이 전송되었습니다. 승인 후 캘린더에 반영됩니다.')),
+                      const SnackBar(content: Text('관리자에게 승인 요청이 전송되었습니다. 관리자 결재 후 캘린더에 최종 반영됩니다.')),
                     );
                   } else {
                     final record = {
@@ -934,7 +933,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('관리자에게 승인 요청이 전송되었습니다. 관리자 승인 후 캘린더에 표시됩니다.')),
+                      const SnackBar(content: Text('관리자에게 승인 요청이 전송되었습니다. 관리자 결재 후 캘린더에 최종 표시됩니다.')),
                     );
                   } else {
                     final record = {
@@ -1443,7 +1442,12 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   ? allList
                   : allList.where((item) => item['empId'] == widget.employeeId).toList();
 
+              final pendingList = _approvalRequests
+                  .where((req) => req['date'] == cellKey && (widget.isAdmin || req['empId'] == widget.employeeId))
+                  .toList();
+
               final hasData = filteredList.isNotEmpty;
+              final hasPending = pendingList.isNotEmpty;
               final isPast = _isPastDate(cellDate);
               final isWithin2Weeks = _isWithinTwoWeeks(cellDate);
 
@@ -1473,9 +1477,22 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                               : (cellDate.weekday == 7 ? Colors.red : (cellDate.weekday == 6 ? Colors.blue : Colors.black87)),
                         ),
                       ),
-                      if (hasData)
+                      if (hasPending)
                         Container(
-                          margin: const EdgeInsets.only(top: 3),
+                          margin: const EdgeInsets.only(top: 2),
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: Colors.deepOrange,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text(
+                            '대기',
+                            style: TextStyle(fontSize: 8, color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        )
+                      else if (hasData)
+                        Container(
+                          margin: const EdgeInsets.only(top: 2),
                           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                           decoration: BoxDecoration(
                             color: widget.isAdmin ? Colors.indigo : const Color(0xFFE35205),
