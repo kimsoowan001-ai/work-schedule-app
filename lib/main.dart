@@ -99,7 +99,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    _adminCodeController.clear(); // 비밀코드 초기화
+    _adminCodeController.clear();
     try {
       final savedEmpId = html.window.localStorage['last_emp_id'] ?? '';
       final savedName = html.window.localStorage['last_name'] ?? '';
@@ -140,7 +140,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (_) {}
 
     final bool adminStatus = _isAdminMode;
-    _adminCodeController.clear(); // 로그인 직후 비밀번호 입력란 완전히 삭제
+    _adminCodeController.clear();
 
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
@@ -273,10 +273,9 @@ class MainScheduleScreen extends StatefulWidget {
 }
 
 class _MainScheduleScreenState extends State<MainScheduleScreen> {
-  String _notice = "📢 당일 기준 2주(14일) 이내 변경/신청/삭제는 관리자 승인이 필요하며, 2주 이후 일정은 자유롭게 신청/삭제 가능합니다.";
+  String _notice = "📢 [안내] 이번 주와 다음 주는 통으로 2주간 잠금 처리되어 관리자 승인이 필요하며, 다다음 주 월요일부터는 자유롭게 신청/삭제 가능합니다.";
   bool _notificationGranted = false;
 
-  // 게시물 목록 리스트 [{ id, title, content, author, time, images: [base64, ...] }]
   List<Map<String, dynamic>> _posts = [];
 
   DateTime _currentMonth = DateTime.now();
@@ -298,7 +297,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       final savedNotice = html.window.localStorage['ktng_notice'];
       if (savedNotice != null && savedNotice.isNotEmpty) _notice = savedNotice;
 
-      // 게시물 데이터 로드
       final savedPosts = html.window.localStorage['ktng_bulletin_posts'];
       if (savedPosts != null && savedPosts.isNotEmpty) {
         final decodedPosts = jsonDecode(savedPosts) as List;
@@ -388,12 +386,21 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     return target.isBefore(today);
   }
 
-  bool _isWithinTwoWeeks(DateTime date) {
+  /// [통으로 2주 잠금 로직]
+  /// 이번 주의 월요일부터 시작하여 다음 주의 일요일까지 (총 14일간) 통으로 승인 필요 기간으로 잠금 처리
+  bool _isWithinTwoWeeks(DateTime targetDate) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final target = DateTime(date.year, date.month, date.day);
-    final diff = target.difference(today).inDays;
-    return diff >= 0 && diff <= 14;
+    final target = DateTime(targetDate.year, targetDate.month, targetDate.day);
+
+    // 이번 주의 월요일 구하기 (Dart weekday: 월=1 ~ 일=7)
+    final thisWeekMonday = today.subtract(Duration(days: today.weekday - 1));
+
+    // 다음 주의 일요일 자정 구하기 (월요일 + 13일)
+    final nextWeekSunday = thisWeekMonday.add(const Duration(days: 13));
+
+    // 오늘 이후이면서, 다음 주 일요일 이전 또는 당일까지는 '통으로 2주' 잠금
+    return !target.isBefore(today) && !target.isAfter(nextWeekSunday);
   }
 
   void _sendWebNotification(String title, String body) {
@@ -488,7 +495,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     return options;
   }
 
-  void _handleDeleteItem(String dateKey, Map<String, String> item, bool isWithin2Weeks) {
+  void _handleDeleteItem(String dateKey, Map<String, String> item, bool isLockedTwoWeeks) {
     if (widget.isAdmin) {
       setState(() {
         _globalScheduleMap[dateKey]?.remove(item);
@@ -498,23 +505,23 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       return;
     }
 
-    if (!isWithin2Weeks) {
+    if (!isLockedTwoWeeks) {
       setState(() {
         _globalScheduleMap[dateKey]?.remove(item);
       });
       saveAllData();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('2주 이후 일정이 즉시 삭제되었습니다.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('잠금기간 이후 일정이 즉시 삭제되었습니다.')));
     } else {
       final deleteReasonController = TextEditingController();
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('🔒 2주 이내 일정 삭제 승인 요청'),
+          title: const Text('🔒 2주 잠금기간 일정 삭제 승인 요청'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('당일 기준 2주 이내 일정의 취소/삭제는 관리자 승인이 필요합니다.', style: TextStyle(fontSize: 13, color: Colors.deepOrange)),
+              const Text('이번 주 및 다음 주(통으로 2주) 일정의 취소/삭제는 관리자 승인이 필요합니다.', style: TextStyle(fontSize: 13, color: Colors.deepOrange)),
               const SizedBox(height: 12),
               Text('삭제 대상: ${item['content']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
               const SizedBox(height: 14),
@@ -659,8 +666,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
     final isWeekend = _selectedDate!.weekday == DateTime.saturday || _selectedDate!.weekday == DateTime.sunday;
     final dateKey = _formatDateKey(_selectedDate!);
-    final bool isWithin2Weeks = _isWithinTwoWeeks(_selectedDate!);
-    final bool requiresApproval = !widget.isAdmin && isWithin2Weeks;
+    final bool isLockedTwoWeeks = _isWithinTwoWeeks(_selectedDate!);
+    final bool requiresApproval = !widget.isAdmin && isLockedTwoWeeks;
 
     final approvalReasonController = TextEditingController();
 
@@ -688,7 +695,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                           SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              '🔒 당일 기준 2주 이내 날짜입니다.\n관리자의 승인이 완료된 후 최종 등록됩니다.',
+                              '🔒 이번 주 및 다음 주(통으로 2주) 기간입니다.\n관리자의 승인이 완료된 후 최종 등록됩니다.',
                               style: TextStyle(fontSize: 12, color: Colors.deepOrange, fontWeight: FontWeight.bold),
                             ),
                           ),
@@ -706,7 +713,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                           SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              '🔓 2주 이후 날짜는 승인 없이 즉시 등록 및 삭제가 가능합니다.',
+                              '🔓 다다음 주 이후 날짜는 승인 없이 즉시 등록 및 삭제가 가능합니다.',
                               style: TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.bold),
                             ),
                           ),
@@ -734,7 +741,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     TextField(
                       controller: approvalReasonController,
                       decoration: const InputDecoration(
-                        labelText: '2주 이내 긴급 사유 (필수)',
+                        labelText: '2주 잠금기간 신청 사유 (필수)',
                         hintText: '사유를 구체적으로 입력하세요',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.rate_review, color: Colors.deepOrange),
@@ -751,7 +758,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 onPressed: () {
                   if (requiresApproval && approvalReasonController.text.trim().isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('2주 이내 긴급 사유를 입력해주세요.')),
+                      const SnackBar(content: Text('긴급 신청 사유를 입력해주세요.')),
                     );
                     return;
                   }
@@ -778,7 +785,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     });
                     saveAllData();
 
-                    _sendWebNotification("⚡ [승인 요청] 2주 이내 주말 근무", "${widget.userName}님이 $dateKey 주말 설정을 승인 요청했습니다.");
+                    _sendWebNotification("⚡ [승인 요청] 2주 잠금기간 주말 근무", "${widget.userName}님이 $dateKey 주말 설정을 승인 요청했습니다.");
 
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -835,7 +842,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                           SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              '🔒 당일 기준 2주 이내 날짜입니다.\n관리자의 승인이 완료된 후 최종 등록됩니다.',
+                              '🔒 이번 주 및 다음 주(통으로 2주) 기간입니다.\n관리자의 승인이 완료된 후 최종 등록됩니다.',
                               style: TextStyle(fontSize: 12, color: Colors.deepOrange, fontWeight: FontWeight.bold),
                             ),
                           ),
@@ -853,7 +860,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                           SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              '🔓 2주 이후 날짜는 승인 없이 즉시 등록 및 삭제가 가능합니다.',
+                              '🔓 다다음 주 이후 날짜는 승인 없이 즉시 등록 및 삭제가 가능합니다.',
                               style: TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.bold),
                             ),
                           ),
@@ -912,7 +919,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     TextField(
                       controller: approvalReasonController,
                       decoration: const InputDecoration(
-                        labelText: '2주 이내 긴급 신청 사유 (필수)',
+                        labelText: '2주 잠금기간 신청 사유 (필수)',
                         hintText: '사유를 작성해주세요',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.rate_review, color: Colors.deepOrange),
@@ -932,7 +939,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     return;
                   }
                   if (requiresApproval && approvalReasonController.text.trim().isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('2주 이내 긴급 사유를 입력해주세요.')));
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('신청 사유를 입력해주세요.')));
                     return;
                   }
 
@@ -968,7 +975,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     });
                     saveAllData();
 
-                    _sendWebNotification("⚡ [승인 요청] 2주 이내 휴가/근무", "${widget.userName}님이 $dateKey '$details' 건에 대한 승인을 요청했습니다.");
+                    _sendWebNotification("⚡ [승인 요청] 2주 잠금기간 휴가/근무", "${widget.userName}님이 $dateKey '$details' 건에 대한 승인을 요청했습니다.");
 
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -1040,7 +1047,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     required IconData icon,
     required List<Map<String, String>> items,
     required String selectedKey,
-    required bool isWithin2Weeks,
+    required bool isLockedTwoWeeks,
   }) {
     if (items.isEmpty) return const SizedBox.shrink();
 
@@ -1122,8 +1129,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 ),
                 trailing: IconButton(
                   icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                  tooltip: widget.isAdmin ? '관리자 삭제' : (isWithin2Weeks ? '삭제 승인 요청' : '즉시 삭제'),
-                  onPressed: () => _handleDeleteItem(selectedKey, item, isWithin2Weeks),
+                  tooltip: widget.isAdmin ? '관리자 삭제' : (isLockedTwoWeeks ? '삭제 승인 요청' : '즉시 삭제'),
+                  onPressed: () => _handleDeleteItem(selectedKey, item, isLockedTwoWeeks),
                 ),
               );
             },
@@ -1147,7 +1154,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         .toList();
 
     final bool isPast = _selectedDate != null ? _isPastDate(_selectedDate!) : false;
-    final bool isWithin2Weeks = _selectedDate != null && _isWithinTwoWeeks(_selectedDate!);
+    final bool isLockedTwoWeeks = _selectedDate != null && _isWithinTwoWeeks(_selectedDate!);
 
     final annualLeaveList = displayList.where((i) => i['type'] == '연차').toList();
     final healthTrainList = displayList.where((i) => i['type'] == '체력단련').toList();
@@ -1161,7 +1168,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         i['type'] != '건강검진' &&
         i['type'] != '주말설정').toList();
 
-    // 최신 게시물 1개 가져오기
     final latestPost = _posts.isNotEmpty ? _posts.first : null;
 
     return Scaffold(
@@ -1320,7 +1326,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      '• 2주 이내: 관리자 승인 후 반영\n• 2주 이후: 자유 신청 및 즉시 [삭제] 가능',
+                      '• 이번 주 및 다음 주(통으로 2주): 관리자 승인 필요\n• 다다음 주 월요일부터: 자유 신청 및 즉시 [삭제] 가능',
                       style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B365D)),
                     ),
                   ),
@@ -1328,7 +1334,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               ),
             ),
 
-            // 1. 공지사항 카드
             Card(
               color: Colors.amber.shade50,
               elevation: 1,
@@ -1367,7 +1372,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
             const SizedBox(height: 8),
 
-            // 2. 공지사항 바로 밑: 최신 게시물 카드 (신설)
             Card(
               color: Colors.white,
               elevation: 1.5,
@@ -1475,17 +1479,17 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                             decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(6)),
                             child: const Text('지난 날짜', style: TextStyle(fontSize: 11, color: Colors.black54)),
                           )
-                        else if (isWithin2Weeks && !widget.isAdmin)
+                        else if (isLockedTwoWeeks && !widget.isAdmin)
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(6)),
-                            child: const Text('🔒 승인 필요 (2주 이내)', style: TextStyle(fontSize: 11, color: Colors.deepOrange, fontWeight: FontWeight.bold)),
+                            child: const Text('🔒 2주 잠금기간 (승인필요)', style: TextStyle(fontSize: 11, color: Colors.deepOrange, fontWeight: FontWeight.bold)),
                           )
-                        else if (!isWithin2Weeks && !widget.isAdmin)
+                        else if (!isLockedTwoWeeks && !widget.isAdmin)
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(6)),
-                            child: Text('🔓 자유 신청 (2주 이후)', style: TextStyle(fontSize: 11, color: Colors.green.shade800, fontWeight: FontWeight.bold)),
+                            child: Text('🔓 자유 신청/삭제 가능', style: TextStyle(fontSize: 11, color: Colors.green.shade800, fontWeight: FontWeight.bold)),
                           ),
                       ],
                     ),
@@ -1495,15 +1499,15 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       height: 46,
                       child: ElevatedButton.icon(
                         onPressed: isPast ? _showPastWorkRecordDialog : _showAddWorkDialog,
-                        icon: Icon(isPast ? Icons.edit_calendar : (isWithin2Weeks && !widget.isAdmin ? Icons.lock_clock : Icons.add_task), size: 20),
+                        icon: Icon(isPast ? Icons.edit_calendar : (isLockedTwoWeeks && !widget.isAdmin ? Icons.lock_clock : Icons.add_task), size: 20),
                         label: Text(
-                          isPast ? '지난 근무 기록' : (isWithin2Weeks && !widget.isAdmin ? '2주 이내 긴급 승인 요청하기' : '근무 / 휴가 신청하기'),
+                          isPast ? '지난 근무 기록' : (isLockedTwoWeeks && !widget.isAdmin ? '2주 잠금기간 긴급 승인 요청' : '근무 / 휴가 신청하기'),
                           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: isPast
                               ? Colors.blueGrey
-                              : (isWithin2Weeks && !widget.isAdmin ? Colors.deepOrange : (widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D))),
+                              : (isLockedTwoWeeks && !widget.isAdmin ? Colors.deepOrange : (widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D))),
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
@@ -1553,7 +1557,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         icon: Icons.beach_access,
                         items: annualLeaveList,
                         selectedKey: selectedKey,
-                        isWithin2Weeks: isWithin2Weeks,
+                        isLockedTwoWeeks: isLockedTwoWeeks,
                       ),
                       _buildGroupSection(
                         title: '❤️ 가족사랑의 날',
@@ -1561,7 +1565,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         icon: Icons.family_restroom,
                         items: familyLoveList,
                         selectedKey: selectedKey,
-                        isWithin2Weeks: isWithin2Weeks,
+                        isLockedTwoWeeks: isLockedTwoWeeks,
                       ),
                       _buildGroupSection(
                         title: '💪 체력단련 휴가',
@@ -1569,7 +1573,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         icon: Icons.fitness_center,
                         items: healthTrainList,
                         selectedKey: selectedKey,
-                        isWithin2Weeks: isWithin2Weeks,
+                        isLockedTwoWeeks: isLockedTwoWeeks,
                       ),
                       _buildGroupSection(
                         title: '🩺 건강검진',
@@ -1577,7 +1581,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         icon: Icons.medical_services,
                         items: checkupList,
                         selectedKey: selectedKey,
-                        isWithin2Weeks: isWithin2Weeks,
+                        isLockedTwoWeeks: isLockedTwoWeeks,
                       ),
                       _buildGroupSection(
                         title: '🗓️ 주말 근무/휴무 설정',
@@ -1585,7 +1589,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         icon: Icons.weekend,
                         items: weekendList,
                         selectedKey: selectedKey,
-                        isWithin2Weeks: isWithin2Weeks,
+                        isLockedTwoWeeks: isLockedTwoWeeks,
                       ),
                       _buildGroupSection(
                         title: '📝 기타 사유 및 근무 기록',
@@ -1593,7 +1597,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         icon: Icons.history_edu,
                         items: othersAndActualList,
                         selectedKey: selectedKey,
-                        isWithin2Weeks: isWithin2Weeks,
+                        isLockedTwoWeeks: isLockedTwoWeeks,
                       ),
                     ] else
                       ListView.builder(
@@ -1627,8 +1631,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                               subtitle: Text('구분: ${item['type']}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
                               trailing: IconButton(
                                 icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                tooltip: widget.isAdmin ? '관리자 삭제' : (isWithin2Weeks ? '삭제 승인 요청' : '즉시 삭제'),
-                                onPressed: () => _handleDeleteItem(selectedKey, item, isWithin2Weeks),
+                                tooltip: widget.isAdmin ? '관리자 삭제' : (isLockedTwoWeeks ? '삭제 승인 요청' : '즉시 삭제'),
+                                onPressed: () => _handleDeleteItem(selectedKey, item, isLockedTwoWeeks),
                               ),
                             ),
                           );
@@ -1709,7 +1713,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               final hasData = filteredList.isNotEmpty;
               final hasPending = pendingList.isNotEmpty;
               final isPast = _isPastDate(cellDate);
-              final isWithin2Weeks = _isWithinTwoWeeks(cellDate);
+              final isLockedTwoWeeks = _isWithinTwoWeeks(cellDate);
 
               return InkWell(
                 onTap: () => setState(() => _selectedDate = cellDate),
@@ -1763,7 +1767,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                             style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold),
                           ),
                         )
-                      else if (isWithin2Weeks && !isPast)
+                      else if (isLockedTwoWeeks && !isPast)
                         Container(
                           margin: const EdgeInsets.only(top: 3),
                           width: 4,
@@ -1785,7 +1789,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   }
 }
 
-// 4. [관리자 전용] 월별 휴가자 타임라인 리스트 화면 (신설)
+// 4. [관리자 전용] 월별 휴가자 타임라인 리스트 화면
 class MonthlyVacationListScreen extends StatefulWidget {
   final Map<String, List<Map<String, String>>> scheduleMap;
 
@@ -1812,13 +1816,11 @@ class _MonthlyVacationListScreenState extends State<MonthlyVacationListScreen> {
     final daysInMonth = DateTime(_selectedYear, _selectedMonth + 1, 0).day;
     int totalVacationCount = 0;
 
-    // 해당 월의 1일부터 말일까지 날짜별 휴가자 모음
     List<Map<String, dynamic>> monthlyTimeline = [];
     for (int day = 1; day <= daysInMonth; day++) {
       final dateKey = "$_selectedYear-${_selectedMonth.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}";
       final rawList = widget.scheduleMap[dateKey] ?? [];
 
-      // 휴가 관련 항목만 필터링 (연차, 가족사랑, 체력단련, 건강검진, 기타)
       final vacationItems = rawList.where((item) {
         final type = item['type'] ?? '';
         return type != '(실제기록)';
@@ -1846,7 +1848,6 @@ class _MonthlyVacationListScreenState extends State<MonthlyVacationListScreen> {
       ),
       body: Column(
         children: [
-          // 연도 / 월 선택 바
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             color: Colors.teal.shade50,
@@ -1883,7 +1884,6 @@ class _MonthlyVacationListScreenState extends State<MonthlyVacationListScreen> {
             ),
           ),
           const Divider(height: 1),
-          // 1일부터 말일까지 타임라인 리스트
           Expanded(
             child: monthlyTimeline.isEmpty
                 ? Center(
@@ -1901,7 +1901,6 @@ class _MonthlyVacationListScreenState extends State<MonthlyVacationListScreen> {
                     itemCount: monthlyTimeline.length,
                     itemBuilder: (ctx, idx) {
                       final dayData = monthlyTimeline[idx];
-                      final int day = dayData['day'];
                       final String weekday = dayData['weekday'];
                       final bool isWeekend = dayData['isWeekend'];
                       final List<Map<String, String>> items = dayData['items'];
@@ -1913,7 +1912,6 @@ class _MonthlyVacationListScreenState extends State<MonthlyVacationListScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // 날짜 배너
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                               decoration: BoxDecoration(
@@ -1935,7 +1933,6 @@ class _MonthlyVacationListScreenState extends State<MonthlyVacationListScreen> {
                                 ],
                               ),
                             ),
-                            // 해당 날짜 휴가자 목록
                             ListView.separated(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
@@ -1990,7 +1987,7 @@ class _MonthlyVacationListScreenState extends State<MonthlyVacationListScreen> {
   }
 }
 
-// 5. [게시판 / 공지 & 근무표 사진 게시물 관리] (사진 다중 첨부 & 본문 작성)
+// 5. 게시판 & 근무표
 class BulletinBoardScreen extends StatefulWidget {
   final bool isAdmin;
   final String userName;
@@ -2056,7 +2053,6 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  // 사진 첨부 버튼
                   OutlinedButton.icon(
                     onPressed: () {
                       final uploadInput = html.FileUploadInputElement()
@@ -2086,7 +2082,6 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                     label: Text('사진 첨부하기 (현재 ${selectedImages.length}장)'),
                   ),
                   const SizedBox(height: 10),
-                  // 첨부된 사진 미리보기 썸네일
                   if (selectedImages.isNotEmpty)
                     SizedBox(
                       height: 80,
@@ -2301,7 +2296,6 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                               overflow: TextOverflow.ellipsis,
                             ),
                           const SizedBox(height: 10),
-                          // 첨부된 사진 미리보기 썸네일들
                           if (images.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(bottom: 10),
@@ -2348,7 +2342,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
   }
 }
 
-// 6. 게시물 상세 열람 화면 (사진 슬라이드 및 줌 지원)
+// 6. 게시물 상세 열람 화면
 class PostDetailScreen extends StatelessWidget {
   final Map<String, dynamic> post;
   final bool isAdmin;
@@ -2515,7 +2509,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('📌 2주 이내 긴급 신청/삭제 결재함 (${widget.approvalRequests.length}건)'),
+        title: Text('📌 2주 잠금기간 긴급 신청/삭제 결재함 (${widget.approvalRequests.length}건)'),
         backgroundColor: Colors.deepOrange,
         foregroundColor: Colors.white,
       ),
