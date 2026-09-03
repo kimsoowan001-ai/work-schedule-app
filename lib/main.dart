@@ -17,7 +17,6 @@ class WorkScheduleApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 앱 진입 시 자동 로그인 세션 즉각 확인
     final isLoggedIn = html.window.localStorage['is_logged_in'] == 'true';
     final savedEmpId = html.window.localStorage['last_emp_id'] ?? '';
     final savedName = html.window.localStorage['last_name'] ?? '';
@@ -275,7 +274,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 3. 메인 스케줄 화면 (내장 html.HttpRequest 기반 실시간 클라우드 연동)
+// 3. 메인 스케줄 화면
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -343,11 +342,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     } catch (_) {}
   }
 
-  // Firebase 서버에서 전 직원 공용 데이터 실시간 로드 (내장 html.HttpRequest 사용)
   Future<void> _syncFromFirebase() async {
     setState(() => _isSyncing = true);
     try {
-      // 1) 스케줄 데이터 불러오기
       try {
         final schedReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/schedules?key=$firestoreApiKey',
@@ -367,7 +364,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         }
       } catch (_) {}
 
-      // 2) 결재 대기 데이터 불러오기
       try {
         final appReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/approvals?key=$firestoreApiKey',
@@ -384,7 +380,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         }
       } catch (_) {}
 
-      // 3) 공지사항 및 게시물 불러오기
       try {
         final boardReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/board?key=$firestoreApiKey',
@@ -413,7 +408,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     }
   }
 
-  // Firebase 서버에 변경사항 즉시 동기화 전송 (내장 html.HttpRequest 사용)
   static Future<void> saveAllData() async {
     try {
       final schedJson = jsonEncode(_globalScheduleMap);
@@ -1343,7 +1337,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               ListTile(
                 leading: const Icon(Icons.people_alt, color: Colors.indigo),
                 title: const Text('전체 사원 신청 종합현황', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
-                subtitle: const Text('모든 사원의 신청 내역 통합 관리'),
+                subtitle: const Text('날짜 드래그 선택 및 사원 검색'),
                 trailing: const Icon(Icons.arrow_forward_ios, size: 14),
                 onTap: () {
                   Navigator.pop(context);
@@ -1396,7 +1390,12 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             tooltip: '전체 연차/휴가자 월별 현황',
             onPressed: _openVacationMonthlyOverviewScreen,
           ),
-          if (widget.isAdmin)
+          if (widget.isAdmin) ...[
+            IconButton(
+              icon: const Icon(Icons.people_alt),
+              tooltip: '전체 사원 종합 현황표 (날짜별 조회)',
+              onPressed: _openAllEmployeesOverviewScreen,
+            ),
             Stack(
               alignment: Alignment.center,
               children: [
@@ -1417,6 +1416,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   )
               ],
             ),
+          ],
           IconButton(
             icon: const Icon(Icons.dynamic_feed),
             tooltip: '게시판 열기',
@@ -2749,7 +2749,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
   }
 }
 
-// 8. 전체 사원 종합 현황표
+// 8. 전체 사원 종합 현황표 (날짜 드래그 선택 및 텍스트 검색 기능)
 class AllEmployeesOverviewScreen extends StatefulWidget {
   final Map<String, List<Map<String, String>>> scheduleMap;
   final VoidCallback onScheduleUpdated;
@@ -2766,6 +2766,26 @@ class AllEmployeesOverviewScreen extends StatefulWidget {
 
 class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen> {
   String _searchQuery = "";
+  
+  // 날짜 드래그/선택 필터 변수 (null이면 전체 날짜 표시)
+  int? _filterYear;
+  int? _filterMonth;
+  int? _filterDay;
+
+  @override
+  void initState() {
+    super.initState();
+    // 기본값은 오늘 날짜로 세팅하여 쉽게 선택할 수 있도록 준비
+    final now = DateTime.now();
+    _filterYear = now.year;
+    _filterMonth = now.month;
+    _filterDay = now.day;
+  }
+
+  // 선택된 연, 월에 따른 마지막 일자 계산
+  int _getDaysInMonth(int year, int month) {
+    return DateTime(year, month + 1, 0).day;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2784,12 +2804,28 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
 
     flattenedList.sort((a, b) => b['date']!.compareTo(a['date']!));
 
+    // 1) 연/월/일 드롭다운 날짜 필터링
+    if (_filterYear != null && _filterMonth != null && _filterDay != null) {
+      final targetDateKey = "$_filterYear-${_filterMonth.toString().padLeft(2, '0')}-${_filterDay.toString().padLeft(2, '0')}";
+      flattenedList = flattenedList.where((item) => item['date'] == targetDateKey).toList();
+    }
+
+    // 2) 사원명, 사번, 내용 텍스트 검색 필터링
     if (_searchQuery.isNotEmpty) {
       flattenedList = flattenedList.where((item) =>
           item['empName']!.contains(_searchQuery) ||
           item['empId']!.contains(_searchQuery) ||
           item['date']!.contains(_searchQuery) ||
           item['content']!.contains(_searchQuery)).toList();
+    }
+
+    final maxDays = (_filterYear != null && _filterMonth != null)
+        ? _getDaysInMonth(_filterYear!, _filterMonth!)
+        : 31;
+
+    // 만약 월이 바뀌어 31일이 30일/28일보다 큰 경우 보정
+    if (_filterDay != null && _filterDay! > maxDays) {
+      _filterDay = maxDays;
     }
 
     return Scaffold(
@@ -2800,15 +2836,106 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
       ),
       body: Column(
         children: [
+          // 상단: 드래그/스크롤 날짜 선택 바 & 전체보기 버튼
           Container(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            color: Colors.teal.shade50,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.date_range, color: Colors.teal, size: 20),
+                    const SizedBox(width: 8),
+                    const Text('날짜 선택 조회:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.teal)),
+                    const Spacer(),
+                    // 전체 날짜 보기 초기화 버튼
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        visualDensity: VisualDensity.compact,
+                        backgroundColor: (_filterYear == null) ? Colors.teal : Colors.white,
+                        foregroundColor: (_filterYear == null) ? Colors.white : Colors.teal,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          if (_filterYear == null) {
+                            final now = DateTime.now();
+                            _filterYear = now.year;
+                            _filterMonth = now.month;
+                            _filterDay = now.day;
+                          } else {
+                            _filterYear = null;
+                            _filterMonth = null;
+                            _filterDay = null;
+                          }
+                        });
+                      },
+                      icon: Icon((_filterYear == null) ? Icons.check : Icons.all_inclusive, size: 16),
+                      label: Text((_filterYear == null) ? '전체 날짜 표시 중' : '전체 날짜 보기'),
+                    ),
+                  ],
+                ),
+                if (_filterYear != null) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // 연도 드롭다운
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.teal.shade200)),
+                        child: DropdownButton<int>(
+                          value: _filterYear,
+                          underline: const SizedBox(),
+                          items: [2025, 2026, 2027, 2028].map((y) => DropdownMenuItem(value: y, child: Text('$y년', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))).toList(),
+                          onChanged: (val) {
+                            if (val != null) setState(() => _filterYear = val);
+                          },
+                        ),
+                      ),
+                      // 월 드롭다운
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.teal.shade200)),
+                        child: DropdownButton<int>(
+                          value: _filterMonth,
+                          underline: const SizedBox(),
+                          items: List.generate(12, (i) => i + 1).map((m) => DropdownMenuItem(value: m, child: Text('$m월', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))).toList(),
+                          onChanged: (val) {
+                            if (val != null) setState(() => _filterMonth = val);
+                          },
+                        ),
+                      ),
+                      // 일 드롭다운
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.teal.shade200)),
+                        child: DropdownButton<int>(
+                          value: _filterDay,
+                          underline: const SizedBox(),
+                          items: List.generate(maxDays, (i) => i + 1).map((d) => DropdownMenuItem(value: d, child: Text('$d일', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))).toList(),
+                          onChanged: (val) {
+                            if (val != null) setState(() => _filterDay = val);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          // 텍스트 검색창 (이름, 사번 등)
+          Container(
+            padding: const EdgeInsets.all(12.0),
             color: Colors.white,
             child: TextField(
               decoration: InputDecoration(
-                hintText: '사원명, 사번, 날짜, 신청 항목 검색...',
+                hintText: '사원명, 사번, 신청 항목 검색...',
                 prefixIcon: const Icon(Icons.search, color: Colors.teal),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               ),
               onChanged: (val) => setState(() => _searchQuery = val.trim()),
             ),
@@ -2816,7 +2943,7 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
           const Divider(height: 1),
           Expanded(
             child: flattenedList.isEmpty
-                ? const Center(child: Text('등록된 근무/신청 내역이 없습니다.', style: TextStyle(color: Colors.grey, fontSize: 16)))
+                ? const Center(child: Text('해당 조건에 일치하는 신청 내역이 없습니다.', style: TextStyle(color: Colors.grey, fontSize: 15)))
                 : ListView.builder(
                     padding: const EdgeInsets.all(12),
                     itemCount: flattenedList.length,
@@ -2844,12 +2971,13 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
                           ),
                           trailing: IconButton(
                             icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                            tooltip: '삭제',
+                            tooltip: '관리자 삭제',
                             onPressed: () {
                               setState(() {
                                 final date = item['date']!;
                                 widget.scheduleMap[date]?.removeWhere((element) => element['empId'] == item['empId']);
                               });
+                              MainScheduleScreen.saveAllData();
                               widget.onScheduleUpdated();
                             },
                           ),
