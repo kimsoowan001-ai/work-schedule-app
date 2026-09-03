@@ -1,6 +1,12 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'dart:html' as html;
+import 'package:http/http.dart' as http;
+
+// Firebase 클라우드 DB 공식 연동 키 설정
+const String firestoreProjectId = "ktng-schedule";
+const String firestoreApiKey = "AIzaSyCqq2-pNm6e4z4nq0ijX3ZI4bGsxY0w75Q";
+const String firestoreBaseUrl = "https://firestore.googleapis.com/v1/projects/$firestoreProjectId/databases/(default)/documents/app_data";
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -12,6 +18,20 @@ class WorkScheduleApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 앱 진입 시 자동 로그인 세션 즉각 확인
+    final isLoggedIn = html.window.localStorage['is_logged_in'] == 'true';
+    final savedEmpId = html.window.localStorage['last_emp_id'] ?? '';
+    final savedName = html.window.localStorage['last_name'] ?? '';
+    final savedAdmin = html.window.localStorage['is_admin'] == 'true';
+
+    final Widget initialHome = (isLoggedIn && savedEmpId.isNotEmpty && savedName.isNotEmpty)
+        ? MainScheduleScreen(
+            employeeId: savedEmpId,
+            userName: savedName,
+            isAdmin: savedAdmin,
+          )
+        : const SplashScreen();
+
     return MaterialApp(
       title: 'KT&G 근무 스케줄 관리',
       debugShowCheckedModeBanner: false,
@@ -19,12 +39,12 @@ class WorkScheduleApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1B365D)),
         useMaterial3: true,
       ),
-      home: const SplashScreen(),
+      home: initialHome,
     );
   }
 }
 
-// 1. KT&G 스플래시 인트로 화면
+// 1. KT&G 스플래시 화면
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -36,13 +56,12 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const LoginScreen()),
-        );
-      }
+    Future.delayed(const Duration(milliseconds: 1000), () {
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
+      );
     });
   }
 
@@ -80,7 +99,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
-// 2. 로그인 화면 (비밀번호 자동 삭제 처리)
+// 2. 로그인 화면
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -135,8 +154,10 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     try {
+      html.window.localStorage['is_logged_in'] = 'true';
       html.window.localStorage['last_emp_id'] = empId;
       html.window.localStorage['last_name'] = name;
+      html.window.localStorage['is_admin'] = _isAdminMode.toString();
     } catch (_) {}
 
     final bool adminStatus = _isAdminMode;
@@ -275,6 +296,7 @@ class MainScheduleScreen extends StatefulWidget {
 class _MainScheduleScreenState extends State<MainScheduleScreen> {
   String _notice = "📢 [공지] 이번 주 포함 총 3주간(다다음 주 일요일까지)은 통으로 잠금 처리되어 관리자 승인이 필요하며, 4주차 월요일부터는 자유롭게 신청/삭제 가능합니다.";
   bool _notificationGranted = false;
+  bool _isSyncing = false;
 
   List<Map<String, dynamic>> _posts = [];
 
@@ -288,11 +310,12 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   void initState() {
     super.initState();
     _selectedDate = DateTime.now();
-    _loadStoredData();
+    _loadLocalStoredData();
+    _syncFromFirebase();
     _safeCheckNotificationPermission();
   }
 
-  void _loadStoredData() {
+  void _loadLocalStoredData() {
     try {
       final savedNotice = html.window.localStorage['ktng_notice'];
       if (savedNotice != null && savedNotice.isNotEmpty) _notice = savedNotice;
@@ -308,12 +331,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         final decoded = jsonDecode(savedData) as Map<String, dynamic>;
         _globalScheduleMap = decoded.map((key, value) {
           final list = (value as List).map((item) => Map<String, String>.from(item as Map)).toList();
-          final Map<String, Map<String, String>> uniqueByEmp = {};
-          for (var entry in list) {
-            final emp = entry['empId'] ?? '';
-            uniqueByEmp[emp] = entry;
-          }
-          return MapEntry(key, uniqueByEmp.values.toList());
+          return MapEntry(key, list);
         });
       }
 
@@ -322,34 +340,117 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         final decodedApp = jsonDecode(savedApproval) as List;
         _approvalRequests = decodedApp.map((item) => Map<String, String>.from(item as Map)).toList();
       }
-
       setState(() {});
-    } catch (e) {
-      debugPrint("데이터 로드 오류: $e");
-    }
-  }
-
-  static void saveAllData() {
-    try {
-      html.window.localStorage['ktng_schedule_data'] = jsonEncode(_globalScheduleMap);
-      html.window.localStorage['ktng_approval_data'] = jsonEncode(_approvalRequests);
-    } catch (e) {
-      debugPrint("데이터 저장 오류: $e");
-    }
-  }
-
-  void _savePosts() {
-    try {
-      html.window.localStorage['ktng_bulletin_posts'] = jsonEncode(_posts);
-    } catch (e) {
-      debugPrint("게시글 저장 오류: $e");
-    }
-  }
-
-  void _saveNotice(String newNotice) {
-    try {
-      html.window.localStorage['ktng_notice'] = newNotice;
     } catch (_) {}
+  }
+
+  // Firebase 서버에서 전 직원 공용 데이터 실시간 로드 (Key 인증 포함)
+  Future<void> _syncFromFirebase() async {
+    setState(() => _isSyncing = true);
+    try {
+      // 1) 스케줄 데이터 불러오기
+      final schedRes = await http.get(Uri.parse('$firestoreBaseUrl/schedules?key=$firestoreApiKey'));
+      if (schedRes.statusCode == 200) {
+        final body = jsonDecode(schedRes.body);
+        final jsonStr = body['fields']?['data']?['stringValue'];
+        if (jsonStr != null && jsonStr.isNotEmpty) {
+          final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
+          _globalScheduleMap = decoded.map((k, v) {
+            final l = (v as List).map((e) => Map<String, String>.from(e as Map)).toList();
+            return MapEntry(k, l);
+          });
+          html.window.localStorage['ktng_schedule_data'] = jsonStr;
+        }
+      }
+
+      // 2) 결재 대기 데이터 불러오기
+      final appRes = await http.get(Uri.parse('$firestoreBaseUrl/approvals?key=$firestoreApiKey'));
+      if (appRes.statusCode == 200) {
+        final body = jsonDecode(appRes.body);
+        final jsonStr = body['fields']?['data']?['stringValue'];
+        if (jsonStr != null && jsonStr.isNotEmpty) {
+          final decoded = jsonDecode(jsonStr) as List;
+          _approvalRequests = decoded.map((e) => Map<String, String>.from(e as Map)).toList();
+          html.window.localStorage['ktng_approval_data'] = jsonStr;
+        }
+      }
+
+      // 3) 공지사항 및 게시물 불러오기
+      final boardRes = await http.get(Uri.parse('$firestoreBaseUrl/board?key=$firestoreApiKey'));
+      if (boardRes.statusCode == 200) {
+        final body = jsonDecode(boardRes.body);
+        final noticeStr = body['fields']?['notice']?['stringValue'];
+        final postsStr = body['fields']?['posts']?['stringValue'];
+
+        if (noticeStr != null && noticeStr.isNotEmpty) {
+          _notice = noticeStr;
+          html.window.localStorage['ktng_notice'] = noticeStr;
+        }
+        if (postsStr != null && postsStr.isNotEmpty) {
+          final decoded = jsonDecode(postsStr) as List;
+          _posts = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          html.window.localStorage['ktng_bulletin_posts'] = postsStr;
+        }
+      }
+    } catch (e) {
+      debugPrint("서버 동기화 오류: $e");
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
+  }
+
+  // Firebase 서버에 변경사항 즉시 동기화 전송 (Key 인증 포함)
+  static Future<void> saveAllData() async {
+    try {
+      final schedJson = jsonEncode(_globalScheduleMap);
+      final appJson = jsonEncode(_approvalRequests);
+
+      html.window.localStorage['ktng_schedule_data'] = schedJson;
+      html.window.localStorage['ktng_approval_data'] = appJson;
+
+      await http.patch(
+        Uri.parse('$firestoreBaseUrl/schedules?key=$firestoreApiKey'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'fields': {
+            'data': {'stringValue': schedJson}
+          }
+        }),
+      );
+
+      await http.patch(
+        Uri.parse('$firestoreBaseUrl/approvals?key=$firestoreApiKey'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'fields': {
+            'data': {'stringValue': appJson}
+          }
+        }),
+      );
+    } catch (e) {
+      debugPrint("서버 저장 오류: $e");
+    }
+  }
+
+  Future<void> _saveBoardToFirebase() async {
+    try {
+      final postsJson = jsonEncode(_posts);
+      html.window.localStorage['ktng_notice'] = _notice;
+      html.window.localStorage['ktng_bulletin_posts'] = postsJson;
+
+      await http.patch(
+        Uri.parse('$firestoreBaseUrl/board?key=$firestoreApiKey'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'fields': {
+            'notice': {'stringValue': _notice},
+            'posts': {'stringValue': postsJson},
+          }
+        }),
+      );
+    } catch (e) {
+      debugPrint("게시판 서버 저장 오류: $e");
+    }
   }
 
   void _safeCheckNotificationPermission() {
@@ -425,12 +526,12 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             onPressed: () {
               final newNotice = controller.text.trim();
               setState(() => _notice = newNotice);
-              _saveNotice(newNotice);
+              _saveBoardToFirebase();
               Navigator.pop(ctx);
 
               _sendWebNotification("📢 [KT&G 공지사항]", newNotice);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('공지사항이 수정 및 저장되었습니다.')),
+                const SnackBar(content: Text('공지사항이 중앙 서버에 저장되었습니다.')),
               );
             },
             child: const Text('저장 및 알림 전송'),
@@ -452,7 +553,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             setState(() {
               _posts = updatedPosts;
             });
-            _savePosts();
+            _saveBoardToFirebase();
           },
           sendNotification: _sendWebNotification,
         ),
@@ -639,7 +740,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('지난 근무 기록이 저장되었습니다.')),
+                  const SnackBar(content: Text('지난 근무 기록이 클라우드에 저장되었습니다.')),
                 );
               },
               child: const Text('기록 저장'),
@@ -1188,7 +1289,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               title: const Text('근무 캘린더 (메인)'),
               onTap: () => Navigator.pop(context),
             ),
-            // 사원/관리자 공용: 휴가자 월별 전체 리스트 카테고리
             ListTile(
               leading: const Icon(Icons.date_range, color: Colors.teal),
               title: const Text('🌴 전체 연차/휴가자 월별 현황', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal)),
@@ -1247,10 +1347,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.redAccent),
               title: const Text('로그아웃', style: TextStyle(color: Colors.redAccent)),
-              onTap: () => Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (context) => const LoginScreen()),
-              ),
+              onTap: () {
+                html.window.localStorage.remove('is_logged_in');
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (context) => const LoginScreen()),
+                );
+              },
             ),
           ],
         ),
@@ -1260,7 +1363,17 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         backgroundColor: widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D),
         foregroundColor: Colors.white,
         actions: [
-          // 사원/관리자 모두 상단 바에서 바로 전체 연차 사용 현황 조회 가능
+          IconButton(
+            icon: _isSyncing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.sync),
+            tooltip: '서버 데이터 실시간 동기화',
+            onPressed: _syncFromFirebase,
+          ),
           IconButton(
             icon: const Icon(Icons.date_range),
             tooltip: '전체 연차/휴가자 월별 현황',
@@ -1295,10 +1408,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: '로그아웃',
-            onPressed: () => Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const LoginScreen()),
-            ),
+            onPressed: () {
+              html.window.localStorage.remove('is_logged_in');
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const LoginScreen()),
+              );
+            },
           ),
         ],
       ),
@@ -1317,11 +1433,11 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.info_outline, color: Colors.indigo, size: 20),
+                  Icon(Icons.cloud_done, color: Colors.indigo, size: 20),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      '• 이번 주 포함 총 3주간(다다음 주 일요일까지): 관리자 승인 필요\n• 4주차 월요일부터: 자유 신청 및 즉시 [삭제] 가능',
+                      '• 100명 전 사원 중앙 클라우드 실시간 연동 중\n• 이번 주 포함 총 3주간: 승인 필요 / 4주차부터 자유 신청',
                       style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B365D)),
                     ),
                   ),
@@ -1367,7 +1483,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
             const SizedBox(height: 8),
 
-            // 전체 연차 현황 바로가기 카드
             Card(
               color: Colors.teal.shade50,
               elevation: 1,
@@ -1816,7 +1931,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   }
 }
 
-// 4. [공용] 월별 휴가자 타임라인 리스트 화면 (사원/관리자 공용)
+// 4. [공용] 월별 휴가자 타임라인 리스트 화면
 class MonthlyVacationListScreen extends StatefulWidget {
   final Map<String, List<Map<String, String>>> scheduleMap;
 
@@ -2015,7 +2130,7 @@ class _MonthlyVacationListScreenState extends State<MonthlyVacationListScreen> {
   }
 }
 
-// 5. 게시판 & 근무표
+// 5. 게시판 & 근무표 (사진 및 본문 관리)
 class BulletinBoardScreen extends StatefulWidget {
   final bool isAdmin;
   final String userName;
@@ -2193,7 +2308,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                 widget.sendNotification("📢 [새 게시물 등록]", "$title ($timeStr)");
 
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('게시물이 성공적으로 등록되었습니다.')));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('게시물이 클라우드에 성공적으로 등록되었습니다.')));
               },
               child: const Text('등록'),
             ),
