@@ -80,7 +80,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
-// 2. 로그인 화면 (관리자 비밀코드 초기화)
+// 2. 로그인 화면 (비밀번호 자동 삭제 처리)
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -273,7 +273,7 @@ class MainScheduleScreen extends StatefulWidget {
 }
 
 class _MainScheduleScreenState extends State<MainScheduleScreen> {
-  String _notice = "📢 [공지] 이번 주를 포함하여 총 3주간(다다음 주 일요일까지)은 통으로 잠금 처리되어 관리자 승인이 필요하며, 4주차 월요일부터는 자유롭게 신청/삭제 가능합니다.";
+  String _notice = "📢 [공지] 이번 주 포함 총 3주간(다다음 주 일요일까지)은 통으로 잠금 처리되어 관리자 승인이 필요하며, 4주차 월요일부터는 자유롭게 신청/삭제 가능합니다.";
   bool _notificationGranted = false;
 
   List<Map<String, dynamic>> _posts = [];
@@ -386,20 +386,14 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     return target.isBefore(today);
   }
 
-  /// [이번 주 포함 총 3주(다다음 주 일요일까지) 통으로 잠금 로직]
-  /// 이번 주 월요일 ~ 다다음 주 일요일 (총 21일 구간)을 승인 필요 기간으로 지정
   bool _isWithinThreeWeeks(DateTime targetDate) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final target = DateTime(targetDate.year, targetDate.month, targetDate.day);
 
-    // 이번 주 월요일 계산 (Dart: 월=1, 화=2, ... 일=7)
     final thisWeekMonday = today.subtract(Duration(days: today.weekday - 1));
-
-    // 다다음 주 일요일 자정 (이번 주 월요일 + 20일) -> 총 3주(21일간)의 마지막 날
     final twoWeeksLaterSunday = thisWeekMonday.add(const Duration(days: 20));
 
-    // 오늘 이후이면서, 다다음 주 일요일까지는 통으로 잠금 기간
     return !target.isBefore(today) && !target.isAfter(twoWeeksLaterSunday);
   }
 
@@ -1194,6 +1188,17 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               title: const Text('근무 캘린더 (메인)'),
               onTap: () => Navigator.pop(context),
             ),
+            // 사원/관리자 공용: 휴가자 월별 전체 리스트 카테고리
+            ListTile(
+              leading: const Icon(Icons.date_range, color: Colors.teal),
+              title: const Text('🌴 전체 연차/휴가자 월별 현황', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal)),
+              subtitle: const Text('전체 사원의 월별 휴가 현황 타임라인'),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+              onTap: () {
+                Navigator.pop(context);
+                _openVacationMonthlyOverviewScreen();
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.dynamic_feed, color: Colors.indigo),
               title: Text(widget.isAdmin ? '게시판 / 근무표 관리 (글&사진)' : '게시판 / 근무표 보기',
@@ -1206,16 +1211,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               },
             ),
             if (widget.isAdmin) ...[
-              ListTile(
-                leading: const Icon(Icons.date_range, color: Colors.teal),
-                title: const Text('휴가자 월별 전체 리스트', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal)),
-                subtitle: const Text('연도/월별 1일~말일 휴가자 타임라인'),
-                trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-                onTap: () {
-                  Navigator.pop(context);
-                  _openVacationMonthlyOverviewScreen();
-                },
-              ),
               ListTile(
                 leading: const Icon(Icons.assignment_turned_in, color: Colors.deepOrange),
                 title: const Text('긴급 신청/삭제 결재함', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
@@ -1265,12 +1260,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         backgroundColor: widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D),
         foregroundColor: Colors.white,
         actions: [
-          if (widget.isAdmin) ...[
-            IconButton(
-              icon: const Icon(Icons.date_range),
-              tooltip: '휴가자 월별 전체 리스트',
-              onPressed: _openVacationMonthlyOverviewScreen,
-            ),
+          // 사원/관리자 모두 상단 바에서 바로 전체 연차 사용 현황 조회 가능
+          IconButton(
+            icon: const Icon(Icons.date_range),
+            tooltip: '전체 연차/휴가자 월별 현황',
+            onPressed: _openVacationMonthlyOverviewScreen,
+          ),
+          if (widget.isAdmin)
             Stack(
               alignment: Alignment.center,
               children: [
@@ -1291,7 +1287,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   )
               ],
             ),
-          ],
           IconButton(
             icon: const Icon(Icons.dynamic_feed),
             tooltip: '게시판 열기',
@@ -1366,6 +1361,38 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     const SizedBox(height: 4),
                     Text(_notice, style: const TextStyle(fontSize: 13, height: 1.35)),
                   ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // 전체 연차 현황 바로가기 카드
+            Card(
+              color: Colors.teal.shade50,
+              elevation: 1,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Colors.teal.shade200),
+              ),
+              child: InkWell(
+                onTap: _openVacationMonthlyOverviewScreen,
+                borderRadius: BorderRadius.circular(12),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
+                  child: Row(
+                    children: [
+                      Icon(Icons.date_range, color: Colors.teal, size: 22),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '🌴 전체 사원 연차/휴가 사용 현황 보러가기',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.teal),
+                        ),
+                      ),
+                      Icon(Icons.chevron_right, color: Colors.teal, size: 20),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -1789,7 +1816,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   }
 }
 
-// 4. [관리자 전용] 월별 휴가자 타임라인 리스트 화면
+// 4. [공용] 월별 휴가자 타임라인 리스트 화면 (사원/관리자 공용)
 class MonthlyVacationListScreen extends StatefulWidget {
   final Map<String, List<Map<String, String>>> scheduleMap;
 
@@ -1842,7 +1869,7 @@ class _MonthlyVacationListScreenState extends State<MonthlyVacationListScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('🌴 휴가자 월별 전체 리스트'),
+        title: const Text('🌴 전체 연차/휴가자 월별 현황'),
         backgroundColor: Colors.teal,
         foregroundColor: Colors.white,
       ),
