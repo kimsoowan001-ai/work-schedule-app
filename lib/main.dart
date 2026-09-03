@@ -1,9 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'dart:html' as html;
-import 'package:http/http.dart' as http;
 
-// Firebase 클라우드 DB 공식 연동 키 설정
+// Firebase 클라우드 DB 연동 설정
 const String firestoreProjectId = "ktng-schedule";
 const String firestoreApiKey = "AIzaSyCqq2-pNm6e4z4nq0ijX3ZI4bGsxY0w75Q";
 const String firestoreBaseUrl = "https://firestore.googleapis.com/v1/projects/$firestoreProjectId/databases/(default)/documents/app_data";
@@ -276,7 +275,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 3. 메인 스케줄 화면
+// 3. 메인 스케줄 화면 (내장 html.HttpRequest 기반 실시간 클라우드 연동)
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -344,54 +343,69 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     } catch (_) {}
   }
 
-  // Firebase 서버에서 전 직원 공용 데이터 실시간 로드 (Key 인증 포함)
+  // Firebase 서버에서 전 직원 공용 데이터 실시간 로드 (내장 html.HttpRequest 사용)
   Future<void> _syncFromFirebase() async {
     setState(() => _isSyncing = true);
     try {
       // 1) 스케줄 데이터 불러오기
-      final schedRes = await http.get(Uri.parse('$firestoreBaseUrl/schedules?key=$firestoreApiKey'));
-      if (schedRes.statusCode == 200) {
-        final body = jsonDecode(schedRes.body);
-        final jsonStr = body['fields']?['data']?['stringValue'];
-        if (jsonStr != null && jsonStr.isNotEmpty) {
-          final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
-          _globalScheduleMap = decoded.map((k, v) {
-            final l = (v as List).map((e) => Map<String, String>.from(e as Map)).toList();
-            return MapEntry(k, l);
-          });
-          html.window.localStorage['ktng_schedule_data'] = jsonStr;
+      try {
+        final schedReq = await html.HttpRequest.request(
+          '$firestoreBaseUrl/schedules?key=$firestoreApiKey',
+          method: 'GET',
+        );
+        if (schedReq.status == 200 && schedReq.responseText != null) {
+          final body = jsonDecode(schedReq.responseText!);
+          final jsonStr = body['fields']?['data']?['stringValue'];
+          if (jsonStr != null && jsonStr.isNotEmpty) {
+            final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
+            _globalScheduleMap = decoded.map((k, v) {
+              final l = (v as List).map((e) => Map<String, String>.from(e as Map)).toList();
+              return MapEntry(k, l);
+            });
+            html.window.localStorage['ktng_schedule_data'] = jsonStr;
+          }
         }
-      }
+      } catch (_) {}
 
       // 2) 결재 대기 데이터 불러오기
-      final appRes = await http.get(Uri.parse('$firestoreBaseUrl/approvals?key=$firestoreApiKey'));
-      if (appRes.statusCode == 200) {
-        final body = jsonDecode(appRes.body);
-        final jsonStr = body['fields']?['data']?['stringValue'];
-        if (jsonStr != null && jsonStr.isNotEmpty) {
-          final decoded = jsonDecode(jsonStr) as List;
-          _approvalRequests = decoded.map((e) => Map<String, String>.from(e as Map)).toList();
-          html.window.localStorage['ktng_approval_data'] = jsonStr;
+      try {
+        final appReq = await html.HttpRequest.request(
+          '$firestoreBaseUrl/approvals?key=$firestoreApiKey',
+          method: 'GET',
+        );
+        if (appReq.status == 200 && appReq.responseText != null) {
+          final body = jsonDecode(appReq.responseText!);
+          final jsonStr = body['fields']?['data']?['stringValue'];
+          if (jsonStr != null && jsonStr.isNotEmpty) {
+            final decoded = jsonDecode(jsonStr) as List;
+            _approvalRequests = decoded.map((e) => Map<String, String>.from(e as Map)).toList();
+            html.window.localStorage['ktng_approval_data'] = jsonStr;
+          }
         }
-      }
+      } catch (_) {}
 
       // 3) 공지사항 및 게시물 불러오기
-      final boardRes = await http.get(Uri.parse('$firestoreBaseUrl/board?key=$firestoreApiKey'));
-      if (boardRes.statusCode == 200) {
-        final body = jsonDecode(boardRes.body);
-        final noticeStr = body['fields']?['notice']?['stringValue'];
-        final postsStr = body['fields']?['posts']?['stringValue'];
+      try {
+        final boardReq = await html.HttpRequest.request(
+          '$firestoreBaseUrl/board?key=$firestoreApiKey',
+          method: 'GET',
+        );
+        if (boardReq.status == 200 && boardReq.responseText != null) {
+          final body = jsonDecode(boardReq.responseText!);
+          final noticeStr = body['fields']?['notice']?['stringValue'];
+          final postsStr = body['fields']?['posts']?['stringValue'];
 
-        if (noticeStr != null && noticeStr.isNotEmpty) {
-          _notice = noticeStr;
-          html.window.localStorage['ktng_notice'] = noticeStr;
+          if (noticeStr != null && noticeStr.isNotEmpty) {
+            _notice = noticeStr;
+            html.window.localStorage['ktng_notice'] = noticeStr;
+          }
+          if (postsStr != null && postsStr.isNotEmpty) {
+            final decoded = jsonDecode(postsStr) as List;
+            _posts = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+            html.window.localStorage['ktng_bulletin_posts'] = postsStr;
+          }
         }
-        if (postsStr != null && postsStr.isNotEmpty) {
-          final decoded = jsonDecode(postsStr) as List;
-          _posts = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-          html.window.localStorage['ktng_bulletin_posts'] = postsStr;
-        }
-      }
+      } catch (_) {}
     } catch (e) {
       debugPrint("서버 동기화 오류: $e");
     } finally {
@@ -399,7 +413,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     }
   }
 
-  // Firebase 서버에 변경사항 즉시 동기화 전송 (Key 인증 포함)
+  // Firebase 서버에 변경사항 즉시 동기화 전송 (내장 html.HttpRequest 사용)
   static Future<void> saveAllData() async {
     try {
       final schedJson = jsonEncode(_globalScheduleMap);
@@ -408,20 +422,22 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       html.window.localStorage['ktng_schedule_data'] = schedJson;
       html.window.localStorage['ktng_approval_data'] = appJson;
 
-      await http.patch(
-        Uri.parse('$firestoreBaseUrl/schedules?key=$firestoreApiKey'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
+      await html.HttpRequest.request(
+        '$firestoreBaseUrl/schedules?key=$firestoreApiKey',
+        method: 'PATCH',
+        requestHeaders: {'Content-Type': 'application/json'},
+        sendData: jsonEncode({
           'fields': {
             'data': {'stringValue': schedJson}
           }
         }),
       );
 
-      await http.patch(
-        Uri.parse('$firestoreBaseUrl/approvals?key=$firestoreApiKey'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
+      await html.HttpRequest.request(
+        '$firestoreBaseUrl/approvals?key=$firestoreApiKey',
+        method: 'PATCH',
+        requestHeaders: {'Content-Type': 'application/json'},
+        sendData: jsonEncode({
           'fields': {
             'data': {'stringValue': appJson}
           }
@@ -438,10 +454,11 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       html.window.localStorage['ktng_notice'] = _notice;
       html.window.localStorage['ktng_bulletin_posts'] = postsJson;
 
-      await http.patch(
-        Uri.parse('$firestoreBaseUrl/board?key=$firestoreApiKey'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
+      await html.HttpRequest.request(
+        '$firestoreBaseUrl/board?key=$firestoreApiKey',
+        method: 'PATCH',
+        requestHeaders: {'Content-Type': 'application/json'},
+        sendData: jsonEncode({
           'fields': {
             'notice': {'stringValue': _notice},
             'posts': {'stringValue': postsJson},
@@ -2130,7 +2147,7 @@ class _MonthlyVacationListScreenState extends State<MonthlyVacationListScreen> {
   }
 }
 
-// 5. 게시판 & 근무표 (사진 및 본문 관리)
+// 5. 게시판 & 근무표
 class BulletinBoardScreen extends StatefulWidget {
   final bool isAdmin;
   final String userName;
