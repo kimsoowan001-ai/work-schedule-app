@@ -7,6 +7,45 @@ const String firestoreProjectId = "ktng-schedule";
 const String firestoreApiKey = "AIzaSyCqq2-pNm6e4z4nq0ijX3ZI4bGsxY0w75Q";
 const String firestoreBaseUrl = "https://firestore.googleapis.com/v1/projects/$firestoreProjectId/databases/(default)/documents/app_data";
 
+// 전역 상태 데이터
+Map<String, List<Map<String, String>>> globalScheduleMap = {};
+List<Map<String, String>> globalApprovalRequests = [];
+
+// Firebase 서버에 변경사항 즉시 동기화 전송 (전역 함수)
+Future<void> saveAllData() async {
+  try {
+    final schedJson = jsonEncode(globalScheduleMap);
+    final appJson = jsonEncode(globalApprovalRequests);
+
+    html.window.localStorage['ktng_schedule_data'] = schedJson;
+    html.window.localStorage['ktng_approval_data'] = appJson;
+
+    await html.HttpRequest.request(
+      '$firestoreBaseUrl/schedules?key=$firestoreApiKey',
+      method: 'PATCH',
+      requestHeaders: {'Content-Type': 'application/json'},
+      sendData: jsonEncode({
+        'fields': {
+          'data': {'stringValue': schedJson}
+        }
+      }),
+    );
+
+    await html.HttpRequest.request(
+      '$firestoreBaseUrl/approvals?key=$firestoreApiKey',
+      method: 'PATCH',
+      requestHeaders: {'Content-Type': 'application/json'},
+      sendData: jsonEncode({
+        'fields': {
+          'data': {'stringValue': appJson}
+        }
+      }),
+    );
+  } catch (e) {
+    debugPrint("서버 저장 오류: $e");
+  }
+}
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const WorkScheduleApp());
@@ -301,9 +340,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   DateTime _currentMonth = DateTime.now();
   DateTime? _selectedDate;
 
-  static Map<String, List<Map<String, String>>> _globalScheduleMap = {};
-  static List<Map<String, String>> _approvalRequests = [];
-
   @override
   void initState() {
     super.initState();
@@ -327,7 +363,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       final savedData = html.window.localStorage['ktng_schedule_data'];
       if (savedData != null && savedData.isNotEmpty) {
         final decoded = jsonDecode(savedData) as Map<String, dynamic>;
-        _globalScheduleMap = decoded.map((key, value) {
+        globalScheduleMap = decoded.map((key, value) {
           final list = (value as List).map((item) => Map<String, String>.from(item as Map)).toList();
           return MapEntry(key, list);
         });
@@ -336,7 +372,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       final savedApproval = html.window.localStorage['ktng_approval_data'];
       if (savedApproval != null && savedApproval.isNotEmpty) {
         final decodedApp = jsonDecode(savedApproval) as List;
-        _approvalRequests = decodedApp.map((item) => Map<String, String>.from(item as Map)).toList();
+        globalApprovalRequests = decodedApp.map((item) => Map<String, String>.from(item as Map)).toList();
       }
       setState(() {});
     } catch (_) {}
@@ -355,7 +391,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           final jsonStr = body['fields']?['data']?['stringValue'];
           if (jsonStr != null && jsonStr.isNotEmpty) {
             final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
-            _globalScheduleMap = decoded.map((k, v) {
+            globalScheduleMap = decoded.map((k, v) {
               final l = (v as List).map((e) => Map<String, String>.from(e as Map)).toList();
               return MapEntry(k, l);
             });
@@ -374,7 +410,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           final jsonStr = body['fields']?['data']?['stringValue'];
           if (jsonStr != null && jsonStr.isNotEmpty) {
             final decoded = jsonDecode(jsonStr) as List;
-            _approvalRequests = decoded.map((e) => Map<String, String>.from(e as Map)).toList();
+            globalApprovalRequests = decoded.map((e) => Map<String, String>.from(e as Map)).toList();
             html.window.localStorage['ktng_approval_data'] = jsonStr;
           }
         }
@@ -405,40 +441,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       debugPrint("서버 동기화 오류: $e");
     } finally {
       if (mounted) setState(() => _isSyncing = false);
-    }
-  }
-
-  static Future<void> saveAllData() async {
-    try {
-      final schedJson = jsonEncode(_globalScheduleMap);
-      final appJson = jsonEncode(_approvalRequests);
-
-      html.window.localStorage['ktng_schedule_data'] = schedJson;
-      html.window.localStorage['ktng_approval_data'] = appJson;
-
-      await html.HttpRequest.request(
-        '$firestoreBaseUrl/schedules?key=$firestoreApiKey',
-        method: 'PATCH',
-        requestHeaders: {'Content-Type': 'application/json'},
-        sendData: jsonEncode({
-          'fields': {
-            'data': {'stringValue': schedJson}
-          }
-        }),
-      );
-
-      await html.HttpRequest.request(
-        '$firestoreBaseUrl/approvals?key=$firestoreApiKey',
-        method: 'PATCH',
-        requestHeaders: {'Content-Type': 'application/json'},
-        sendData: jsonEncode({
-          'fields': {
-            'data': {'stringValue': appJson}
-          }
-        }),
-      );
-    } catch (e) {
-      debugPrint("서버 저장 오류: $e");
     }
   }
 
@@ -577,7 +579,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       context,
       MaterialPageRoute(
         builder: (ctx) => MonthlyVacationListScreen(
-          scheduleMap: _globalScheduleMap,
+          scheduleMap: globalScheduleMap,
         ),
       ),
     );
@@ -604,7 +606,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   void _handleDeleteItem(String dateKey, Map<String, String> item, bool isLockedThreeWeeks) {
     if (widget.isAdmin) {
       setState(() {
-        _globalScheduleMap[dateKey]?.remove(item);
+        globalScheduleMap[dateKey]?.remove(item);
       });
       saveAllData();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('일정이 삭제되었습니다.')));
@@ -613,7 +615,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
     if (!isLockedThreeWeeks) {
       setState(() {
-        _globalScheduleMap[dateKey]?.remove(item);
+        globalScheduleMap[dateKey]?.remove(item);
       });
       saveAllData();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('3주 잠금기간 이후 일정이 즉시 삭제되었습니다.')));
@@ -651,7 +653,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   return;
                 }
 
-                _approvalRequests.removeWhere((r) => r['date'] == dateKey && r['empId'] == widget.employeeId);
+                globalApprovalRequests.removeWhere((r) => r['date'] == dateKey && r['empId'] == widget.employeeId);
 
                 final req = {
                   'id': DateTime.now().millisecondsSinceEpoch.toString(),
@@ -666,7 +668,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 };
 
                 setState(() {
-                  _approvalRequests.add(req);
+                  globalApprovalRequests.add(req);
                 });
                 saveAllData();
 
@@ -744,8 +746,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 };
 
                 setState(() {
-                  _globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((item) => item['empId'] == widget.employeeId);
-                  _globalScheduleMap[dateKey]!.add(record);
+                  globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((item) => item['empId'] == widget.employeeId);
+                  globalScheduleMap[dateKey]!.add(record);
                 });
                 saveAllData();
 
@@ -873,7 +875,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   final contentStr = '주말 $weekendOption ${note.isNotEmpty ? '($note)' : ''}';
 
                   if (requiresApproval) {
-                    _approvalRequests.removeWhere((r) => r['date'] == dateKey && r['empId'] == widget.employeeId);
+                    globalApprovalRequests.removeWhere((r) => r['date'] == dateKey && r['empId'] == widget.employeeId);
 
                     final req = {
                       'id': DateTime.now().millisecondsSinceEpoch.toString(),
@@ -887,7 +889,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       'requestTime': DateTime.now().toString().substring(0, 16),
                     };
                     setState(() {
-                      _approvalRequests.add(req);
+                      globalApprovalRequests.add(req);
                     });
                     saveAllData();
 
@@ -905,8 +907,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       'content': contentStr,
                     };
                     setState(() {
-                      _globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((item) => item['empId'] == widget.employeeId);
-                      _globalScheduleMap[dateKey]!.add(record);
+                      globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((item) => item['empId'] == widget.employeeId);
+                      globalScheduleMap[dateKey]!.add(record);
                     });
                     saveAllData();
 
@@ -1063,7 +1065,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   }
 
                   if (requiresApproval) {
-                    _approvalRequests.removeWhere((r) => r['date'] == dateKey && r['empId'] == widget.employeeId);
+                    globalApprovalRequests.removeWhere((r) => r['date'] == dateKey && r['empId'] == widget.employeeId);
 
                     final req = {
                       'id': DateTime.now().millisecondsSinceEpoch.toString(),
@@ -1077,7 +1079,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       'requestTime': DateTime.now().toString().substring(0, 16),
                     };
                     setState(() {
-                      _approvalRequests.add(req);
+                      globalApprovalRequests.add(req);
                     });
                     saveAllData();
 
@@ -1095,8 +1097,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       'content': details,
                     };
                     setState(() {
-                      _globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((item) => item['empId'] == widget.employeeId);
-                      _globalScheduleMap[dateKey]!.add(record);
+                      globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((item) => item['empId'] == widget.employeeId);
+                      globalScheduleMap[dateKey]!.add(record);
                     });
                     saveAllData();
 
@@ -1120,8 +1122,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       context,
       MaterialPageRoute(
         builder: (ctx) => AdminApprovalScreen(
-          approvalRequests: _approvalRequests,
-          scheduleMap: _globalScheduleMap,
+          approvalRequests: globalApprovalRequests,
+          scheduleMap: globalScheduleMap,
           onUpdated: () {
             setState(() {});
             saveAllData();
@@ -1137,7 +1139,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       context,
       MaterialPageRoute(
         builder: (ctx) => AllEmployeesOverviewScreen(
-          scheduleMap: _globalScheduleMap,
+          scheduleMap: globalScheduleMap,
           onScheduleUpdated: () {
             setState(() {});
             saveAllData();
@@ -1249,13 +1251,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   @override
   Widget build(BuildContext context) {
     final selectedKey = _selectedDate != null ? _formatDateKey(_selectedDate!) : '';
-    final rawList = _globalScheduleMap[selectedKey] ?? [];
+    final rawList = globalScheduleMap[selectedKey] ?? [];
 
     final displayList = widget.isAdmin
         ? rawList
         : rawList.where((item) => item['empId'] == widget.employeeId).toList();
 
-    final myPendingList = _approvalRequests
+    final myPendingList = globalApprovalRequests
         .where((req) => req['date'] == selectedKey && (widget.isAdmin || req['empId'] == widget.employeeId))
         .toList();
 
@@ -1325,9 +1327,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               ListTile(
                 leading: const Icon(Icons.assignment_turned_in, color: Colors.deepOrange),
                 title: const Text('긴급 신청/삭제 결재함', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
-                subtitle: Text('승인 대기 요청: ${_approvalRequests.length}건'),
-                trailing: _approvalRequests.isNotEmpty
-                    ? CircleAvatar(radius: 12, backgroundColor: Colors.red, child: Text('${_approvalRequests.length}', style: const TextStyle(fontSize: 11, color: Colors.white)))
+                subtitle: Text('승인 대기 요청: ${globalApprovalRequests.length}건'),
+                trailing: globalApprovalRequests.isNotEmpty
+                    ? CircleAvatar(radius: 12, backgroundColor: Colors.red, child: Text('${globalApprovalRequests.length}', style: const TextStyle(fontSize: 11, color: Colors.white)))
                     : const Icon(Icons.arrow_forward_ios, size: 14),
                 onTap: () {
                   Navigator.pop(context);
@@ -1404,14 +1406,14 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   tooltip: '긴급 결재함',
                   onPressed: _openApprovalManagementScreen,
                 ),
-                if (_approvalRequests.isNotEmpty)
+                if (globalApprovalRequests.isNotEmpty)
                   Positioned(
                     right: 6,
                     top: 6,
                     child: CircleAvatar(
                       radius: 8,
                       backgroundColor: Colors.red,
-                      child: Text('${_approvalRequests.length}', style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
+                      child: Text('${globalApprovalRequests.length}', style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
                     ),
                   )
               ],
@@ -1860,12 +1862,12 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   _selectedDate!.month == cellDate.month &&
                   _selectedDate!.day == cellDate.day;
 
-              final allList = _globalScheduleMap[cellKey] ?? [];
+              final allList = globalScheduleMap[cellKey] ?? [];
               final filteredList = widget.isAdmin
                   ? allList
                   : allList.where((item) => item['empId'] == widget.employeeId).toList();
 
-              final pendingList = _approvalRequests
+              final pendingList = globalApprovalRequests
                   .where((req) => req['date'] == cellKey && (widget.isAdmin || req['empId'] == widget.employeeId))
                   .toList();
 
@@ -2767,7 +2769,6 @@ class AllEmployeesOverviewScreen extends StatefulWidget {
 class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen> {
   String _searchQuery = "";
   
-  // 날짜 드래그/선택 필터 변수 (null이면 전체 날짜 표시)
   int? _filterYear;
   int? _filterMonth;
   int? _filterDay;
@@ -2775,14 +2776,12 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
   @override
   void initState() {
     super.initState();
-    // 기본값은 오늘 날짜로 세팅하여 쉽게 선택할 수 있도록 준비
     final now = DateTime.now();
     _filterYear = now.year;
     _filterMonth = now.month;
     _filterDay = now.day;
   }
 
-  // 선택된 연, 월에 따른 마지막 일자 계산
   int _getDaysInMonth(int year, int month) {
     return DateTime(year, month + 1, 0).day;
   }
@@ -2804,13 +2803,11 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
 
     flattenedList.sort((a, b) => b['date']!.compareTo(a['date']!));
 
-    // 1) 연/월/일 드롭다운 날짜 필터링
     if (_filterYear != null && _filterMonth != null && _filterDay != null) {
       final targetDateKey = "$_filterYear-${_filterMonth.toString().padLeft(2, '0')}-${_filterDay.toString().padLeft(2, '0')}";
       flattenedList = flattenedList.where((item) => item['date'] == targetDateKey).toList();
     }
 
-    // 2) 사원명, 사번, 내용 텍스트 검색 필터링
     if (_searchQuery.isNotEmpty) {
       flattenedList = flattenedList.where((item) =>
           item['empName']!.contains(_searchQuery) ||
@@ -2823,7 +2820,6 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
         ? _getDaysInMonth(_filterYear!, _filterMonth!)
         : 31;
 
-    // 만약 월이 바뀌어 31일이 30일/28일보다 큰 경우 보정
     if (_filterDay != null && _filterDay! > maxDays) {
       _filterDay = maxDays;
     }
@@ -2836,7 +2832,6 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
       ),
       body: Column(
         children: [
-          // 상단: 드래그/스크롤 날짜 선택 바 & 전체보기 버튼
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             color: Colors.teal.shade50,
@@ -2849,7 +2844,6 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
                     const SizedBox(width: 8),
                     const Text('날짜 선택 조회:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.teal)),
                     const Spacer(),
-                    // 전체 날짜 보기 초기화 버튼
                     TextButton.icon(
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -2881,7 +2875,6 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      // 연도 드롭다운
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.teal.shade200)),
@@ -2894,7 +2887,6 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
                           },
                         ),
                       ),
-                      // 월 드롭다운
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.teal.shade200)),
@@ -2907,7 +2899,6 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
                           },
                         ),
                       ),
-                      // 일 드롭다운
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.teal.shade200)),
@@ -2926,7 +2917,6 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
               ],
             ),
           ),
-          // 텍스트 검색창 (이름, 사번 등)
           Container(
             padding: const EdgeInsets.all(12.0),
             color: Colors.white,
@@ -2977,7 +2967,7 @@ class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen>
                                 final date = item['date']!;
                                 widget.scheduleMap[date]?.removeWhere((element) => element['empId'] == item['empId']);
                               });
-                              MainScheduleScreen.saveAllData();
+                              saveAllData();
                               widget.onScheduleUpdated();
                             },
                           ),
