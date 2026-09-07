@@ -10,15 +10,18 @@ const String firestoreBaseUrl = "https://firestore.googleapis.com/v1/projects/$f
 // 전역 상태 데이터
 Map<String, List<Map<String, String>>> globalScheduleMap = {};
 List<Map<String, String>> globalApprovalRequests = [];
+List<Map<String, dynamic>> globalAttendanceRecords = [];
 
-// Firebase 서버에 변경사항 즉시 동기화 전송 (전역 함수)
+// Firebase 서버에 데이터 즉시 동기화 전송 (전역 함수)
 Future<void> saveAllData() async {
   try {
     final schedJson = jsonEncode(globalScheduleMap);
     final appJson = jsonEncode(globalApprovalRequests);
+    final attJson = jsonEncode(globalAttendanceRecords);
 
     html.window.localStorage['ktng_schedule_data'] = schedJson;
     html.window.localStorage['ktng_approval_data'] = appJson;
+    html.window.localStorage['ktng_attendance_data'] = attJson;
 
     await html.HttpRequest.request(
       '$firestoreBaseUrl/schedules?key=$firestoreApiKey',
@@ -38,6 +41,17 @@ Future<void> saveAllData() async {
       sendData: jsonEncode({
         'fields': {
           'data': {'stringValue': appJson}
+        }
+      }),
+    );
+
+    await html.HttpRequest.request(
+      '$firestoreBaseUrl/attendance?key=$firestoreApiKey',
+      method: 'PATCH',
+      requestHeaders: {'Content-Type': 'application/json'},
+      sendData: jsonEncode({
+        'fields': {
+          'data': {'stringValue': attJson}
         }
       }),
     );
@@ -336,7 +350,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   bool _isSyncing = false;
 
   List<Map<String, dynamic>> _posts = [];
-
   DateTime _currentMonth = DateTime.now();
   DateTime? _selectedDate;
 
@@ -374,6 +387,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         final decodedApp = jsonDecode(savedApproval) as List;
         globalApprovalRequests = decodedApp.map((item) => Map<String, String>.from(item as Map)).toList();
       }
+
+      final savedAtt = html.window.localStorage['ktng_attendance_data'];
+      if (savedAtt != null && savedAtt.isNotEmpty) {
+        final decodedAtt = jsonDecode(savedAtt) as List;
+        globalAttendanceRecords = decodedAtt.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+      }
+
       setState(() {});
     } catch (_) {}
   }
@@ -381,6 +401,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   Future<void> _syncFromFirebase() async {
     setState(() => _isSyncing = true);
     try {
+      // 1) 스케줄
       try {
         final schedReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/schedules?key=$firestoreApiKey',
@@ -400,6 +421,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         }
       } catch (_) {}
 
+      // 2) 결재
       try {
         final appReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/approvals?key=$firestoreApiKey',
@@ -416,6 +438,24 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         }
       } catch (_) {}
 
+      // 3) 근태기록
+      try {
+        final attReq = await html.HttpRequest.request(
+          '$firestoreBaseUrl/attendance?key=$firestoreApiKey',
+          method: 'GET',
+        );
+        if (attReq.status == 200 && attReq.responseText != null) {
+          final body = jsonDecode(attReq.responseText!);
+          final jsonStr = body['fields']?['data']?['stringValue'];
+          if (jsonStr != null && jsonStr.isNotEmpty) {
+            final decoded = jsonDecode(jsonStr) as List;
+            globalAttendanceRecords = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+            html.window.localStorage['ktng_attendance_data'] = jsonStr;
+          }
+        }
+      } catch (_) {}
+
+      // 4) 게시판
       try {
         final boardReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/board?key=$firestoreApiKey',
@@ -585,6 +625,36 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
+  void _openAttendanceScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => AttendanceManagementScreen(
+          isAdmin: widget.isAdmin,
+          currentUserName: widget.userName,
+          currentEmpId: widget.employeeId,
+          onUpdated: () => setState(() {}),
+        ),
+      ),
+    );
+  }
+
+  void _openEmergencyApprovalHistoryScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => EmergencyApprovalHistoryScreen(
+          isAdmin: widget.isAdmin,
+          onUpdated: () {
+            setState(() {});
+            saveAllData();
+          },
+          sendNotification: _sendWebNotification,
+        ),
+      ),
+    );
+  }
+
   List<String> _generateTimeOptions() {
     List<String> options = [];
     for (int i = 0; i <= 16; i++) {
@@ -653,8 +723,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   return;
                 }
 
-                globalApprovalRequests.removeWhere((r) => r['date'] == dateKey && r['empId'] == widget.employeeId);
-
                 final req = {
                   'id': DateTime.now().millisecondsSinceEpoch.toString(),
                   'actionType': '삭제요청',
@@ -665,10 +733,11 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   'content': item['content'] ?? '',
                   'reason': deleteReasonController.text.trim(),
                   'requestTime': DateTime.now().toString().substring(0, 16),
+                  'status': '대기중',
                 };
 
                 setState(() {
-                  globalApprovalRequests.add(req);
+                  globalApprovalRequests.insert(0, req);
                 });
                 saveAllData();
 
@@ -875,8 +944,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   final contentStr = '주말 $weekendOption ${note.isNotEmpty ? '($note)' : ''}';
 
                   if (requiresApproval) {
-                    globalApprovalRequests.removeWhere((r) => r['date'] == dateKey && r['empId'] == widget.employeeId);
-
                     final req = {
                       'id': DateTime.now().millisecondsSinceEpoch.toString(),
                       'actionType': '신청요청',
@@ -887,9 +954,10 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       'content': contentStr,
                       'reason': approvalReasonController.text.trim(),
                       'requestTime': DateTime.now().toString().substring(0, 16),
+                      'status': '대기중',
                     };
                     setState(() {
-                      globalApprovalRequests.add(req);
+                      globalApprovalRequests.insert(0, req);
                     });
                     saveAllData();
 
@@ -1065,8 +1133,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   }
 
                   if (requiresApproval) {
-                    globalApprovalRequests.removeWhere((r) => r['date'] == dateKey && r['empId'] == widget.employeeId);
-
                     final req = {
                       'id': DateTime.now().millisecondsSinceEpoch.toString(),
                       'actionType': '신청요청',
@@ -1077,9 +1143,10 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       'content': details,
                       'reason': approvalReasonController.text.trim(),
                       'requestTime': DateTime.now().toString().substring(0, 16),
+                      'status': '대기중',
                     };
                     setState(() {
-                      globalApprovalRequests.add(req);
+                      globalApprovalRequests.insert(0, req);
                     });
                     saveAllData();
 
@@ -1115,38 +1182,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         ),
       );
     }
-  }
-
-  void _openApprovalManagementScreen() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (ctx) => AdminApprovalScreen(
-          approvalRequests: globalApprovalRequests,
-          scheduleMap: globalScheduleMap,
-          onUpdated: () {
-            setState(() {});
-            saveAllData();
-          },
-          sendNotification: _sendWebNotification,
-        ),
-      ),
-    );
-  }
-
-  void _openAllEmployeesOverviewScreen() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (ctx) => AllEmployeesOverviewScreen(
-          scheduleMap: globalScheduleMap,
-          onScheduleUpdated: () {
-            setState(() {});
-            saveAllData();
-          },
-        ),
-      ),
-    );
   }
 
   Widget _buildGroupSection({
@@ -1258,7 +1293,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         : rawList.where((item) => item['empId'] == widget.employeeId).toList();
 
     final myPendingList = globalApprovalRequests
-        .where((req) => req['date'] == selectedKey && (widget.isAdmin || req['empId'] == widget.employeeId))
+        .where((req) => req['date'] == selectedKey && (req['status'] == '대기중') && (widget.isAdmin || req['empId'] == widget.employeeId))
         .toList();
 
     final bool isPast = _selectedDate != null ? _isPastDate(_selectedDate!) : false;
@@ -1303,6 +1338,16 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               onTap: () => Navigator.pop(context),
             ),
             ListTile(
+              leading: const Icon(Icons.access_time_filled, color: Colors.blueAccent),
+              title: Text(widget.isAdmin ? '⏰ 근태기록 관리 및 등록' : '⏰ 전체 사원 근태기록 조회', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+              subtitle: const Text('오전, 오후, 야간, 주말 및 추가 근무 관리'),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+              onTap: () {
+                Navigator.pop(context);
+                _openAttendanceScreen();
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.date_range, color: Colors.teal),
               title: const Text('🌴 전체 연차/휴가자 월별 현황', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal)),
               subtitle: const Text('전체 사원의 월별 휴가 현황 타임라인'),
@@ -1325,15 +1370,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             ),
             if (widget.isAdmin) ...[
               ListTile(
-                leading: const Icon(Icons.assignment_turned_in, color: Colors.deepOrange),
-                title: const Text('긴급 신청/삭제 결재함', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
-                subtitle: Text('승인 대기 요청: ${globalApprovalRequests.length}건'),
-                trailing: globalApprovalRequests.isNotEmpty
-                    ? CircleAvatar(radius: 12, backgroundColor: Colors.red, child: Text('${globalApprovalRequests.length}', style: const TextStyle(fontSize: 11, color: Colors.white)))
-                    : const Icon(Icons.arrow_forward_ios, size: 14),
+                leading: const Icon(Icons.notification_important, color: Colors.deepOrange),
+                title: const Text('🚨 긴급승인 요청 및 이력', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+                subtitle: Text('대기/승인/반려 영구 기록 관리 (${globalApprovalRequests.length}건)'),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 14),
                 onTap: () {
                   Navigator.pop(context);
-                  _openApprovalManagementScreen();
+                  _openEmergencyApprovalHistoryScreen();
                 },
               ),
               ListTile(
@@ -1343,7 +1386,15 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 trailing: const Icon(Icons.arrow_forward_ios, size: 14),
                 onTap: () {
                   Navigator.pop(context);
-                  _openAllEmployeesOverviewScreen();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (c) => AllEmployeesOverviewScreen(
+                        scheduleMap: globalScheduleMap,
+                        onScheduleUpdated: () => setState(() {}),
+                      ),
+                    ),
+                  );
                 },
               ),
             ],
@@ -1388,32 +1439,30 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             onPressed: _syncFromFirebase,
           ),
           IconButton(
-            icon: const Icon(Icons.date_range),
-            tooltip: '전체 연차/휴가자 월별 현황',
-            onPressed: _openVacationMonthlyOverviewScreen,
+            icon: const Icon(Icons.access_time_filled),
+            tooltip: '근태기록 관리/조회',
+            onPressed: _openAttendanceScreen,
           ),
           if (widget.isAdmin) ...[
-            IconButton(
-              icon: const Icon(Icons.people_alt),
-              tooltip: '전체 사원 종합 현황표 (날짜별 조회)',
-              onPressed: _openAllEmployeesOverviewScreen,
-            ),
             Stack(
               alignment: Alignment.center,
               children: [
                 IconButton(
-                  icon: const Icon(Icons.approval),
-                  tooltip: '긴급 결재함',
-                  onPressed: _openApprovalManagementScreen,
+                  icon: const Icon(Icons.notification_important),
+                  tooltip: '긴급승인 요청 및 이력',
+                  onPressed: _openEmergencyApprovalHistoryScreen,
                 ),
-                if (globalApprovalRequests.isNotEmpty)
+                if (globalApprovalRequests.where((r) => r['status'] == '대기중').isNotEmpty)
                   Positioned(
                     right: 6,
                     top: 6,
                     child: CircleAvatar(
                       radius: 8,
                       backgroundColor: Colors.red,
-                      child: Text('${globalApprovalRequests.length}', style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
+                      child: Text(
+                        '${globalApprovalRequests.where((r) => r['status'] == '대기중').length}',
+                        style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
                     ),
                   )
               ],
@@ -1496,6 +1545,37 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     const SizedBox(height: 4),
                     Text(_notice, style: const TextStyle(fontSize: 13, height: 1.35)),
                   ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            Card(
+              color: Colors.blue.shade50,
+              elevation: 1,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Colors.blue.shade200),
+              ),
+              child: InkWell(
+                onTap: _openAttendanceScreen,
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.access_time_filled, color: Colors.blueAccent, size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          widget.isAdmin ? '⏰ 사원 근태기록 관리 및 등록 바로가기' : '⏰ 전체 사원 근태기록 조회 (내 기록 검색)',
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.blueAccent),
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: Colors.blueAccent, size: 20),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -1868,7 +1948,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   : allList.where((item) => item['empId'] == widget.employeeId).toList();
 
               final pendingList = globalApprovalRequests
-                  .where((req) => req['date'] == cellKey && (widget.isAdmin || req['empId'] == widget.employeeId))
+                  .where((req) => req['date'] == cellKey && (req['status'] == '대기중') && (widget.isAdmin || req['empId'] == widget.employeeId))
                   .toList();
 
               final hasData = filteredList.isNotEmpty;
@@ -1950,7 +2030,595 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   }
 }
 
-// 4. [공용] 월별 휴가자 타임라인 리스트 화면
+// 4. [기능 1번] 긴급승인 사용자 전용 카테고리 (신청일시/상태/기록 보존)
+class EmergencyApprovalHistoryScreen extends StatefulWidget {
+  final bool isAdmin;
+  final VoidCallback onUpdated;
+  final Function(String title, String body) sendNotification;
+
+  const EmergencyApprovalHistoryScreen({
+    super.key,
+    required this.isAdmin,
+    required this.onUpdated,
+    required this.sendNotification,
+  });
+
+  @override
+  State<EmergencyApprovalHistoryScreen> createState() => _EmergencyApprovalHistoryScreenState();
+}
+
+class _EmergencyApprovalHistoryScreenState extends State<EmergencyApprovalHistoryScreen> {
+  String _filterStatus = "전체";
+
+  void _approveRequest(Map<String, String> req) {
+    final dateKey = req['date']!;
+    final actionType = req['actionType'] ?? '신청요청';
+
+    setState(() {
+      req['status'] = '승인완료';
+      if (actionType == '삭제요청') {
+        globalScheduleMap[dateKey]?.removeWhere((element) => element['empId'] == req['empId']);
+      } else {
+        final record = {
+          'empId': req['empId']!,
+          'empName': req['empName']!,
+          'type': req['type']!,
+          'content': req['content']!,
+        };
+        globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((element) => element['empId'] == req['empId']);
+        globalScheduleMap[dateKey]!.add(record);
+      }
+    });
+
+    widget.onUpdated();
+    widget.sendNotification(
+      "✅ [결재 승인 완료]",
+      "${req['empName']}님의 $dateKey [$actionType] 건이 최종 승인 처리되었습니다.",
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${req['empName']}님의 요청이 승인되었습니다.')),
+    );
+  }
+
+  void _rejectRequest(Map<String, String> req) {
+    final actionType = req['actionType'] ?? '신청요청';
+    final targetDate = req['date'] ?? '';
+
+    setState(() {
+      req['status'] = '반려됨';
+    });
+
+    widget.onUpdated();
+    widget.sendNotification(
+      "❌ [결재 반려]",
+      "${req['empName']}님의 $targetDate [$actionType] 건이 반려 처리되었습니다.",
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('해당 요청이 반려 처리되었습니다.')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    List<Map<String, String>> filtered = List.from(globalApprovalRequests);
+    if (_filterStatus != "전체") {
+      filtered = filtered.where((r) => r['status'] == _filterStatus).toList();
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('🚨 긴급승인 요청 및 이력 관리'),
+        backgroundColor: Colors.deepOrange,
+        foregroundColor: Colors.white,
+      ),
+      body: Column(
+        children: [
+          Container(
+            color: Colors.orange.shade50,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('상태 구분:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.deepOrange)),
+                Wrap(
+                  spacing: 6,
+                  children: ["전체", "대기중", "승인완료", "반려됨"].map((st) {
+                    final isSel = _filterStatus == st;
+                    return ChoiceChip(
+                      label: Text(st, style: TextStyle(fontSize: 12, color: isSel ? Colors.white : Colors.black87, fontWeight: FontWeight.bold)),
+                      selected: isSel,
+                      selectedColor: Colors.deepOrange,
+                      onSelected: (val) => setState(() => _filterStatus = st),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: filtered.isEmpty
+                ? const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.history_toggle_off, size: 60, color: Colors.grey),
+                        SizedBox(height: 12),
+                        Text('해당 조건의 긴급 승인 내역이 없습니다.', style: TextStyle(color: Colors.black54, fontSize: 15)),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: filtered.length,
+                    itemBuilder: (ctx, idx) {
+                      final req = filtered[idx];
+                      final status = req['status'] ?? '대기중';
+                      final isPending = status == '대기중';
+
+                      Color badgeColor = Colors.orange;
+                      if (status == '승인완료') badgeColor = Colors.green;
+                      if (status == '반려됨') badgeColor = Colors.red;
+
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 2,
+                        child: Padding(
+                          padding: const EdgeInsets.all(14.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(color: badgeColor, borderRadius: BorderRadius.circular(6)),
+                                        child: Text(status, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        '${req['empName']} (${req['empId']})',
+                                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                                      ),
+                                    ],
+                                  ),
+                                  Text('신청: ${req['requestTime'] ?? '-'}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                ],
+                              ),
+                              const Divider(height: 18),
+                              Text('📅 대상 일정 날짜: ${req['date']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.indigo)),
+                              const SizedBox(height: 4),
+                              Text('📌 신청 항목 및 내용: [${req['actionType'] ?? '신청'}] ${req['content']}', style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                              const SizedBox(height: 6),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
+                                child: Text('💡 긴급 사유: ${req['reason']}', style: const TextStyle(fontSize: 12, color: Colors.brown)),
+                              ),
+                              if (widget.isAdmin && isPending) ...[
+                                const SizedBox(height: 10),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    OutlinedButton.icon(
+                                      onPressed: () => _rejectRequest(req),
+                                      icon: const Icon(Icons.close, color: Colors.red, size: 16),
+                                      label: const Text('반려', style: TextStyle(color: Colors.red)),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    ElevatedButton.icon(
+                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange, foregroundColor: Colors.white),
+                                      onPressed: () => _approveRequest(req),
+                                      icon: const Icon(Icons.check, size: 16),
+                                      label: const Text('승인 처리'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// 5. [기능 2번] 근태기록 카테고리 (다중 사원 & 날짜 범위 일괄 등록 지원)
+class AttendanceManagementScreen extends StatefulWidget {
+  final bool isAdmin;
+  final String currentUserName;
+  final String currentEmpId;
+  final VoidCallback onUpdated;
+
+  const AttendanceManagementScreen({
+    super.key,
+    required this.isAdmin,
+    required this.currentUserName,
+    required this.currentEmpId,
+    required this.onUpdated,
+  });
+
+  @override
+  State<AttendanceManagementScreen> createState() => _AttendanceManagementScreenState();
+}
+
+class _AttendanceManagementScreenState extends State<AttendanceManagementScreen> {
+  String _searchNameQuery = "";
+
+  void _openAddAttendanceDialog() {
+    final employeesInputController = TextEditingController();
+    final extraNoteController = TextEditingController();
+
+    DateTime startDate = DateTime.now();
+    DateTime endDate = DateTime.now();
+    String selectedShift = "오전";
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('⏰ 사원 근태기록 일괄 등록'),
+          content: SingleChildScrollView(
+            child: SizedBox(
+              width: 480,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue.shade200),
+                    ),
+                    child: const Text(
+                      '💡 여러 사원을 한 번에 등록할 수 있습니다.\n형식: 사번 성명 (줄바꿈 또는 쉼표 구분)\n예시:\n12345 홍길동\n12346 김철수',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF1B365D), height: 1.3),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: employeesInputController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      labelText: '사원 목록 (사번 성명)',
+                      hintText: "12345 홍길동\n12346 김철수\n12347 이영희",
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.group_add),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.calendar_today, size: 16),
+                          label: Text(
+                            '시작: ${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          onPressed: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: startDate,
+                              firstDate: DateTime(2025),
+                              lastDate: DateTime(2030),
+                            );
+                            if (picked != null) {
+                              setDialogState(() {
+                                startDate = picked;
+                                if (endDate.isBefore(startDate)) {
+                                  endDate = startDate;
+                                }
+                              });
+                            }
+                          },
+                        ),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 6),
+                        child: Text('~', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.event, size: 16),
+                          label: Text(
+                            '종료: ${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          onPressed: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: endDate,
+                              firstDate: startDate,
+                              lastDate: DateTime(2030),
+                            );
+                            if (picked != null) {
+                              setDialogState(() => endDate = picked);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: selectedShift,
+                    decoration: const InputDecoration(labelText: '근무 시간대 선택', border: OutlineInputBorder()),
+                    items: const [
+                      DropdownMenuItem(value: "오전", child: Text("오전 (07:00-15:00)")),
+                      DropdownMenuItem(value: "오후", child: Text("오후 (15:00-23:00 / OT 1)")),
+                      DropdownMenuItem(value: "야간", child: Text("야간 (23:00-07:00 / OT 7)")),
+                      DropdownMenuItem(value: "주말", child: Text("주말근무")),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) setDialogState(() => selectedShift = val);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: extraNoteController,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: '기타 추가 근무 메모 (선택)',
+                      hintText: '예: 연장근무 2시간 진행 등',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.note_add),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1B365D), foregroundColor: Colors.white),
+              onPressed: () {
+                final rawInput = employeesInputController.text.trim();
+                final note = extraNoteController.text.trim();
+
+                if (rawInput.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('사원 정보를 한 명 이상 입력해주세요.')),
+                  );
+                  return;
+                }
+
+                final List<Map<String, String>> parsedEmployees = [];
+                final lines = rawInput.split(RegExp(r'[\r\n,]+'));
+                for (var line in lines) {
+                  final tokens = line.trim().split(RegExp(r'\s+'));
+                  if (tokens.isNotEmpty && tokens[0].isNotEmpty) {
+                    final empId = tokens[0];
+                    final name = tokens.length > 1 ? tokens.sublist(1).join(' ') : tokens[0];
+                    parsedEmployees.add({'empId': empId, 'name': name});
+                  }
+                }
+
+                if (parsedEmployees.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('유효한 사원 정보가 없습니다.')),
+                  );
+                  return;
+                }
+
+                String shiftDetail = "";
+                if (selectedShift == "오전") shiftDetail = "07:00-15:00";
+                if (selectedShift == "오후") shiftDetail = "15:00-23:00 (OT 1)";
+                if (selectedShift == "야간") shiftDetail = "23:00-07:00 (OT 7)";
+                if (selectedShift == "주말") shiftDetail = "주말근무";
+
+                final List<Map<String, dynamic>> newEntries = [];
+                DateTime cur = DateTime(startDate.year, startDate.month, startDate.day);
+                final endLimit = DateTime(endDate.year, endDate.month, endDate.day);
+
+                int counter = 0;
+                while (!cur.isAfter(endLimit)) {
+                  final dateKey = "${cur.year}-${cur.month.toString().padLeft(2, '0')}-${cur.day.toString().padLeft(2, '0')}";
+                  for (var emp in parsedEmployees) {
+                    newEntries.add({
+                      'id': "${DateTime.now().millisecondsSinceEpoch}_${counter++}",
+                      'empId': emp['empId'],
+                      'name': emp['name'],
+                      'date': dateKey,
+                      'shift': selectedShift,
+                      'shiftDetail': shiftDetail,
+                      'extraNote': note,
+                      'createdAt': DateTime.now().toString().substring(0, 16),
+                    });
+                  }
+                  cur = cur.add(const Duration(days: 1));
+                }
+
+                setState(() {
+                  globalAttendanceRecords.addAll(newEntries);
+                });
+                saveAllData();
+                widget.onUpdated();
+
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('총 ${parsedEmployees.length}명 사원의 ${newEntries.length}건 근태기록이 일괄 등록되었습니다.')),
+                );
+              },
+              child: const Text('일괄 등록'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _deleteAttendance(String id) {
+    setState(() {
+      globalAttendanceRecords.removeWhere((r) => r['id'] == id);
+    });
+    saveAllData();
+    widget.onUpdated();
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('근태기록이 삭제되었습니다.')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    List<Map<String, dynamic>> records = List.from(globalAttendanceRecords);
+    records.sort((a, b) {
+      final nameComp = (a['name'] ?? '').compareTo(b['name'] ?? '');
+      if (nameComp != 0) return nameComp;
+      return (b['date'] ?? '').compareTo(a['date'] ?? '');
+    });
+
+    if (_searchNameQuery.isNotEmpty) {
+      records = records.where((r) =>
+          (r['name'] ?? '').toString().contains(_searchNameQuery) ||
+          (r['empId'] ?? '').toString().contains(_searchNameQuery)).toList();
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.isAdmin ? '⏰ 근태기록 관리 (등록/조회)' : '⏰ 전체 사원 근태기록 조회'),
+        backgroundColor: Colors.blueAccent,
+        foregroundColor: Colors.white,
+      ),
+      floatingActionButton: widget.isAdmin
+          ? FloatingActionButton.extended(
+              onPressed: _openAddAttendanceDialog,
+              backgroundColor: const Color(0xFF1B365D),
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add),
+              label: const Text('근태 등록'),
+            )
+          : null,
+      body: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12.0),
+            color: Colors.blue.shade50,
+            child: TextField(
+              decoration: InputDecoration(
+                hintText: '사원 이름 또는 사번을 검색하세요 (예: 홍길동)...',
+                prefixIcon: const Icon(Icons.search, color: Colors.blueAccent),
+                suffixIcon: _searchNameQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => setState(() => _searchNameQuery = ""),
+                      )
+                    : null,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                fillColor: Colors.white,
+                filled: true,
+              ),
+              onChanged: (val) => setState(() => _searchNameQuery = val.trim()),
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: records.isEmpty
+                ? const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.schedule, size: 60, color: Colors.grey),
+                        SizedBox(height: 12),
+                        Text('등록된 근태기록이 없습니다.', style: TextStyle(color: Colors.black54, fontSize: 15)),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: records.length,
+                    itemBuilder: (ctx, idx) {
+                      final item = records[idx];
+                      final shift = item['shift'] ?? '오전';
+                      Color shiftColor = Colors.blue;
+                      if (shift == "오후") shiftColor = Colors.purple;
+                      if (shift == "야간") shiftColor = Colors.indigo;
+                      if (shift == "주말") shiftColor = Colors.deepOrange;
+
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 1.5,
+                        child: Padding(
+                          padding: const EdgeInsets.all(12.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 14,
+                                    backgroundColor: shiftColor,
+                                    child: Text(
+                                      item['name'] != null && item['name']!.isNotEmpty ? item['name']![0] : 'U',
+                                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '${item['name']} (${item['empId']})',
+                                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                                  ),
+                                  const Spacer(),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(color: shiftColor, borderRadius: BorderRadius.circular(6)),
+                                    child: Text(shift, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                  ),
+                                  if (widget.isAdmin) ...[
+                                    const SizedBox(width: 4),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                                      onPressed: () => _deleteAttendance(item['id']),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('📅 근무일자: ${item['date']}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.indigo)),
+                                  Text('⏱️ ${item['shiftDetail'] ?? ''}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey.shade800)),
+                                ],
+                              ),
+                              if ((item['extraNote'] ?? '').toString().isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
+                                  child: Text('📝 추가/기타 메모: ${item['extraNote']}', style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// 6. [공용] 월별 휴가자 타임라인 리스트 화면
 class MonthlyVacationListScreen extends StatefulWidget {
   final Map<String, List<Map<String, String>>> scheduleMap;
 
@@ -2149,7 +2817,7 @@ class _MonthlyVacationListScreenState extends State<MonthlyVacationListScreen> {
   }
 }
 
-// 5. 게시판 & 근무표
+// 7. 게시판 & 근무표
 class BulletinBoardScreen extends StatefulWidget {
   final bool isAdmin;
   final String userName;
@@ -2504,7 +3172,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
   }
 }
 
-// 6. 게시물 상세 열람 화면
+// 8. 게시물 상세 열람 화면
 class PostDetailScreen extends StatelessWidget {
   final Map<String, dynamic> post;
   final bool isAdmin;
@@ -2595,163 +3263,7 @@ class PostDetailScreen extends StatelessWidget {
   }
 }
 
-// 7. 결재함 화면
-class AdminApprovalScreen extends StatefulWidget {
-  final List<Map<String, String>> approvalRequests;
-  final Map<String, List<Map<String, String>>> scheduleMap;
-  final VoidCallback onUpdated;
-  final Function(String title, String body) sendNotification;
-
-  const AdminApprovalScreen({
-    super.key,
-    required this.approvalRequests,
-    required this.scheduleMap,
-    required this.onUpdated,
-    required this.sendNotification,
-  });
-
-  @override
-  State<AdminApprovalScreen> createState() => _AdminApprovalScreenState();
-}
-
-class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
-  void _approveRequest(int index) {
-    final req = widget.approvalRequests[index];
-    final dateKey = req['date']!;
-    final actionType = req['actionType'] ?? '신청요청';
-
-    setState(() {
-      if (actionType == '삭제요청') {
-        widget.scheduleMap[dateKey]?.removeWhere((element) => element['empId'] == req['empId']);
-      } else {
-        final record = {
-          'empId': req['empId']!,
-          'empName': req['empName']!,
-          'type': req['type']!,
-          'content': req['content']!,
-        };
-        widget.scheduleMap.putIfAbsent(dateKey, () => []).removeWhere((element) => element['empId'] == req['empId']);
-        widget.scheduleMap[dateKey]!.add(record);
-      }
-      widget.approvalRequests.removeAt(index);
-    });
-    widget.onUpdated();
-
-    widget.sendNotification(
-      "✅ [결재 승인 완료]",
-      "${req['empName']}님의 $dateKey [$actionType] 건이 승인 처리되었습니다.",
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${req['empName']}님의 [$actionType] 건이 승인되었습니다.')),
-    );
-  }
-
-  void _rejectRequest(int index) {
-    final req = widget.approvalRequests[index];
-    final actionType = req['actionType'] ?? '신청요청';
-    final targetDate = req['date'] ?? '';
-
-    setState(() {
-      widget.approvalRequests.removeAt(index);
-    });
-    widget.onUpdated();
-
-    widget.sendNotification(
-      "❌ [결재 반려]",
-      "${req['empName']}님의 $targetDate [$actionType] 건이 반려되었습니다.",
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('해당 요청이 반려되었습니다.')),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('📌 3주 잠금기간 긴급 신청/삭제 결재함 (${widget.approvalRequests.length}건)'),
-        backgroundColor: Colors.deepOrange,
-        foregroundColor: Colors.white,
-      ),
-      body: widget.approvalRequests.isEmpty
-          ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.check_circle_outline, size: 64, color: Colors.green),
-                  SizedBox(height: 16),
-                  Text('승인 대기 중인 결재 요청이 없습니다.', style: TextStyle(fontSize: 16, color: Colors.black54)),
-                ],
-              ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: widget.approvalRequests.length,
-              itemBuilder: (ctx, idx) {
-                final req = widget.approvalRequests[idx];
-                final isDeleteReq = req['actionType'] == '삭제요청';
-
-                return Card(
-                  elevation: 2,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              '📅 ${req['date']} [${isDeleteReq ? '삭제요청' : req['type']}]',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: isDeleteReq ? Colors.red : Colors.deepOrange),
-                            ),
-                            Text('신청일시: ${req['requestTime']}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text('👤 신청자: ${req['empName']} (${req['empId']})', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-                        const SizedBox(height: 4),
-                        Text('📝 대상 내용: ${req['content']}', style: const TextStyle(fontSize: 14)),
-                        const SizedBox(height: 6),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
-                          child: Text('💡 사유: ${req['reason']}', style: const TextStyle(fontSize: 13, color: Colors.brown)),
-                        ),
-                        const Divider(height: 20),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: () => _rejectRequest(idx),
-                              icon: const Icon(Icons.close, color: Colors.red),
-                              label: const Text('반려', style: TextStyle(color: Colors.red)),
-                            ),
-                            const SizedBox(width: 12),
-                            ElevatedButton.icon(
-                              onPressed: () => _approveRequest(idx),
-                              icon: const Icon(Icons.check),
-                              label: Text(isDeleteReq ? '삭제 승인' : '신청 승인'),
-                              style: ElevatedButton.styleFrom(backgroundColor: isDeleteReq ? Colors.red : Colors.deepOrange, foregroundColor: Colors.white),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-    );
-  }
-}
-
-// 8. 전체 사원 종합 현황표 (날짜 드래그 선택 및 텍스트 검색 기능)
+// 9. 전체 사원 종합 현황표 (날짜 드래그 선택 및 텍스트 검색 기능)
 class AllEmployeesOverviewScreen extends StatefulWidget {
   final Map<String, List<Map<String, String>>> scheduleMap;
   final VoidCallback onScheduleUpdated;
@@ -2768,7 +3280,6 @@ class AllEmployeesOverviewScreen extends StatefulWidget {
 
 class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen> {
   String _searchQuery = "";
-  
   int? _filterYear;
   int? _filterMonth;
   int? _filterDay;
