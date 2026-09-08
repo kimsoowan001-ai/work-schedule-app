@@ -401,7 +401,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   Future<void> _syncFromFirebase() async {
     setState(() => _isSyncing = true);
     try {
-      // 1) 스케줄
       try {
         final schedReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/schedules?key=$firestoreApiKey',
@@ -421,7 +420,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         }
       } catch (_) {}
 
-      // 2) 결재
       try {
         final appReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/approvals?key=$firestoreApiKey',
@@ -438,7 +436,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         }
       } catch (_) {}
 
-      // 3) 근태기록
       try {
         final attReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/attendance?key=$firestoreApiKey',
@@ -455,7 +452,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         }
       } catch (_) {}
 
-      // 4) 게시판
       try {
         final boardReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/board?key=$firestoreApiKey',
@@ -1340,7 +1336,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             ListTile(
               leading: const Icon(Icons.access_time_filled, color: Colors.blueAccent),
               title: Text(widget.isAdmin ? '⏰ 근태기록 관리 및 등록' : '⏰ 전체 사원 근태기록 조회', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-              subtitle: const Text('오전, 오후, 야간, 주말 및 추가 근무 관리'),
+              subtitle: const Text('오전, 오후, 야간 및 추가 근무 관리'),
               trailing: const Icon(Icons.arrow_forward_ios, size: 14),
               onTap: () {
                 Navigator.pop(context);
@@ -2235,7 +2231,7 @@ class _EmergencyApprovalHistoryScreenState extends State<EmergencyApprovalHistor
   }
 }
 
-// 5. [기능 2번] 근태기록 카테고리 (다중 사원 & 날짜 범위 일괄 등록 지원)
+// 5. [수정 반영] 근태기록 카테고리 (주말 선택지 삭제 및 자동 판별, 당일 빠른 선택, 기타 메모 글자 강조)
 class AttendanceManagementScreen extends StatefulWidget {
   final bool isAdmin;
   final String currentUserName;
@@ -2263,7 +2259,7 @@ class _AttendanceManagementScreenState extends State<AttendanceManagementScreen>
 
     DateTime startDate = DateTime.now();
     DateTime endDate = DateTime.now();
-    String selectedShift = "오전";
+    String selectedShift = "오전"; // 주말 선택지 제외 (오전, 오후, 야간만 제공)
 
     showDialog(
       context: context,
@@ -2272,7 +2268,7 @@ class _AttendanceManagementScreenState extends State<AttendanceManagementScreen>
           title: const Text('⏰ 사원 근태기록 일괄 등록'),
           content: SingleChildScrollView(
             child: SizedBox(
-              width: 480,
+              width: 500,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2285,8 +2281,8 @@ class _AttendanceManagementScreenState extends State<AttendanceManagementScreen>
                       border: Border.all(color: Colors.blue.shade200),
                     ),
                     child: const Text(
-                      '💡 여러 사원을 한 번에 등록할 수 있습니다.\n형식: 사번 성명 (줄바꿈 또는 쉼표 구분)\n예시:\n12345 홍길동\n12346 김철수',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF1B365D), height: 1.3),
+                      '💡 사원 사번과 이름을 한 번에 등록할 수 있습니다.\n• 형식: 사번 성명 (줄바꿈 또는 쉼표 구분)\n• 토/일요일 날짜는 자동으로 "주말근무"로 반영됩니다.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF1B365D), height: 1.35),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -2300,12 +2296,38 @@ class _AttendanceManagementScreenState extends State<AttendanceManagementScreen>
                       prefixIcon: Icon(Icons.group_add),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
+
+                  // 날짜 선택 및 [당일] 바로가기 버튼 영역
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('근무 일자 선택', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blueAccent)),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blueAccent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () {
+                          final now = DateTime.now();
+                          setDialogState(() {
+                            startDate = now;
+                            endDate = now;
+                          });
+                        },
+                        icon: const Icon(Icons.today, size: 16),
+                        label: const Text('당일(오늘)'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
                   Row(
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          icon: const Icon(Icons.calendar_today, size: 16),
+                          icon: const Icon(Icons.calendar_today, size: 15),
                           label: Text(
                             '시작: ${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}',
                             style: const TextStyle(fontSize: 12),
@@ -2334,7 +2356,7 @@ class _AttendanceManagementScreenState extends State<AttendanceManagementScreen>
                       ),
                       Expanded(
                         child: OutlinedButton.icon(
-                          icon: const Icon(Icons.event, size: 16),
+                          icon: const Icon(Icons.event, size: 15),
                           label: Text(
                             '종료: ${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}',
                             style: const TextStyle(fontSize: 12),
@@ -2354,21 +2376,24 @@ class _AttendanceManagementScreenState extends State<AttendanceManagementScreen>
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
+
+                  // 근무 시간대 선택 (주말 선택지 삭제)
                   DropdownButtonFormField<String>(
                     value: selectedShift,
-                    decoration: const InputDecoration(labelText: '근무 시간대 선택', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(labelText: '평일 근무 시간대 선택', border: OutlineInputBorder()),
                     items: const [
                       DropdownMenuItem(value: "오전", child: Text("오전 (07:00-15:00)")),
                       DropdownMenuItem(value: "오후", child: Text("오후 (15:00-23:00 / OT 1)")),
                       DropdownMenuItem(value: "야간", child: Text("야간 (23:00-07:00 / OT 7)")),
-                      DropdownMenuItem(value: "주말", child: Text("주말근무")),
                     ],
                     onChanged: (val) {
                       if (val != null) setDialogState(() => selectedShift = val);
                     },
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
+
+                  // 기타 텍스트 칸 (추가 근무 메모)
                   TextField(
                     controller: extraNoteController,
                     maxLines: 2,
@@ -2416,27 +2441,35 @@ class _AttendanceManagementScreenState extends State<AttendanceManagementScreen>
                   return;
                 }
 
-                String shiftDetail = "";
-                if (selectedShift == "오전") shiftDetail = "07:00-15:00";
-                if (selectedShift == "오후") shiftDetail = "15:00-23:00 (OT 1)";
-                if (selectedShift == "야간") shiftDetail = "23:00-07:00 (OT 7)";
-                if (selectedShift == "주말") shiftDetail = "주말근무";
-
                 final List<Map<String, dynamic>> newEntries = [];
                 DateTime cur = DateTime(startDate.year, startDate.month, startDate.day);
                 final endLimit = DateTime(endDate.year, endDate.month, endDate.day);
 
                 int counter = 0;
                 while (!cur.isAfter(endLimit)) {
+                  final isWeekendDay = cur.weekday == DateTime.saturday || cur.weekday == DateTime.sunday;
                   final dateKey = "${cur.year}-${cur.month.toString().padLeft(2, '0')}-${cur.day.toString().padLeft(2, '0')}";
+
+                  // 토요일/일요일 날짜는 자동으로 "주말" 및 "주말근무"로 처리
+                  final actualShift = isWeekendDay ? "주말" : selectedShift;
+                  String actualShiftDetail = "";
+
+                  if (isWeekendDay) {
+                    actualShiftDetail = "주말근무";
+                  } else {
+                    if (selectedShift == "오전") actualShiftDetail = "07:00-15:00";
+                    if (selectedShift == "오후") actualShiftDetail = "15:00-23:00 (OT 1)";
+                    if (selectedShift == "야간") actualShiftDetail = "23:00-07:00 (OT 7)";
+                  }
+
                   for (var emp in parsedEmployees) {
                     newEntries.add({
                       'id': "${DateTime.now().millisecondsSinceEpoch}_${counter++}",
                       'empId': emp['empId'],
                       'name': emp['name'],
                       'date': dateKey,
-                      'shift': selectedShift,
-                      'shiftDetail': shiftDetail,
+                      'shift': actualShift,
+                      'shiftDetail': actualShiftDetail,
                       'extraNote': note,
                       'createdAt': DateTime.now().toString().substring(0, 16),
                     });
@@ -2452,7 +2485,7 @@ class _AttendanceManagementScreenState extends State<AttendanceManagementScreen>
 
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('총 ${parsedEmployees.length}명 사원의 ${newEntries.length}건 근태기록이 일괄 등록되었습니다.')),
+                  SnackBar(content: Text('총 ${parsedEmployees.length}명 사원의 ${newEntries.length}건 근태기록이 등록되었습니다.')),
                 );
               },
               child: const Text('일괄 등록'),
@@ -2596,13 +2629,25 @@ class _AttendanceManagementScreenState extends State<AttendanceManagementScreen>
                                   Text('⏱️ ${item['shiftDetail'] ?? ''}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey.shade800)),
                                 ],
                               ),
+                              // 2번 요청: 기타 메모 텍스트를 크고 굵게(bold) 표시
                               if ((item['extraNote'] ?? '').toString().isNotEmpty) ...[
-                                const SizedBox(height: 6),
+                                const SizedBox(height: 8),
                                 Container(
                                   width: double.infinity,
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
-                                  child: Text('📝 추가/기타 메모: ${item['extraNote']}', style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.shade50,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: Colors.amber.shade300),
+                                  ),
+                                  child: Text(
+                                    '📝 기타 메모: ${item['extraNote']}',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF1B365D),
+                                    ),
+                                  ),
                                 ),
                               ],
                             ],
