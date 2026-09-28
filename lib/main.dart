@@ -1314,52 +1314,32 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   }
 
   void _showImageZoomDialog(List<String> images, int initialIndex, String title) {
-    final PageController pageController = PageController(initialPage: initialIndex);
-    int currentIndex = initialIndex;
-
     showDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => Dialog(
-          insetPadding: const EdgeInsets.all(8),
-          backgroundColor: Colors.black,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              AppBar(
-                title: Text('$title (${currentIndex + 1}/${images.length})',
-                    style: const TextStyle(fontSize: 15)),
-                backgroundColor: Colors.black,
-                foregroundColor: Colors.white,
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(ctx),
-                  )
-                ],
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        child: Stack(
+          children: [
+            PageView.builder(
+              controller: PageController(initialPage: initialIndex),
+              itemCount: images.length,
+              itemBuilder: (context, idx) {
+                return InteractiveViewer(
+                  child: Center(
+                    child: Image.network(images[idx], fit: BoxFit.contain),
+                  ),
+                );
+              },
+            ),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                onPressed: () => Navigator.pop(ctx),
               ),
-              Expanded(
-                child: PageView.builder(
-                  controller: pageController,
-                  itemCount: images.length,
-                  onPageChanged: (idx) {
-                    setDialogState(() => currentIndex = idx);
-                  },
-                  itemBuilder: (context, idx) {
-                    return InteractiveViewer(
-                      panEnabled: true,
-                      minScale: 0.8,
-                      maxScale: 4.0,
-                      child: Center(
-                        child: Image.network(images[idx], fit: BoxFit.contain),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -1450,7 +1430,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(8.0),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.between,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text('🚨 미처리 긴급승인 (${pendingApprovals.length}건)',
                           style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
@@ -1726,8 +1706,7 @@ class EmergencyApprovalHistoryScreen extends StatefulWidget {
       required this.sendNotification});
 
   @override
-  State<EmergencyApprovalHistoryScreen> createState() =>
-      _EmergencyApprovalHistoryScreenState();
+  State<EmergencyApprovalHistoryScreen> createState() => _EmergencyApprovalHistoryScreenState();
 }
 
 class _EmergencyApprovalHistoryScreenState extends State<EmergencyApprovalHistoryScreen> {
