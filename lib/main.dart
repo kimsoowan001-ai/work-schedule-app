@@ -2,25 +2,25 @@ import 'dart:convert';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
 
-// Firebase Firestore 설정
+// Firestore 기본 설정
 const String firestoreBaseUrl =
     'https://firestore.googleapis.com/v1/projects/ktng-schedule-app/databases/(default)/documents';
 const String firestoreApiKey = 'AIzaSyDummyKeyReplaceIfConfigured';
 
-// 전역 사용자 계정 및 근무 데이터 저장소
+// 1. 전역 계정 저장소 (사번 -> {성명, 비밀번호})
 Map<String, Map<String, String>> globalUsers = {
   '20190416': {'name': '김수완', 'password': '1234'},
 };
 
-// 근무 기록 데이터 (사번 -> 날짜 문자열(YYYY-MM-DD) -> 근무 타입)
+// 2. 전역 근무 기록 저장소 (사번 -> 날짜 -> 근무유형)
 Map<String, Map<String, String>> globalShifts = {};
 
-// 관리자 공지 및 게시글 데이터 목록
+// 3. 관리자 및 공지 게시글 목록
 List<Map<String, String>> globalPosts = [
   {
     'id': '1',
     'title': 'KT&G 근무 스케줄 관리 시스템 안내',
-    'content': '근무 등록 시 오전, 오후, 야간, 주간(08:30~17:30)을 정확히 선택해 주시기 바랍니다.',
+    'content': '근무 등록 시 주간, 오전, 오후, 야간을 정확히 선택해 주시기 바랍니다.',
     'author': '관리자',
     'date': '2026-09-28',
   }
@@ -49,7 +49,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// 로컬 스토리지 데이터 저장 함수
+// 브라우저 로컬 저장소 동기화
 void saveAllData() {
   try {
     html.window.localStorage['ktng_users_data'] = jsonEncode(globalUsers);
@@ -58,9 +58,9 @@ void saveAllData() {
   } catch (_) {}
 }
 
-// -------------------------------------------------------------
-// 1. 보안 로그인 & 회원가입 화면
-// -------------------------------------------------------------
+// =============================================================
+// 로그인 & 회원가입 화면 (비밀번호 검증 및 신규 가입)
+// =============================================================
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -148,7 +148,7 @@ class _LoginScreenState extends State<LoginScreen> {
       globalUsers[empId] = {'name': name, 'password': pw};
       saveAllData();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('회원가입 완료! 로그인해주세요.'), backgroundColor: Colors.green),
+        const SnackBar(content: Text('회원가입이 완료되었습니다! 로그인해주세요.'), backgroundColor: Colors.green),
       );
       setState(() {
         _isSignUpMode = false;
@@ -379,9 +379,9 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// -------------------------------------------------------------
-// 2. 메인 스케줄 & 게시글 관리 화면
-// -------------------------------------------------------------
+// =============================================================
+// 메인 화면 (캘린더 + 원래 Drawer 메뉴 + 관리자 기능)
+// =============================================================
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -399,9 +399,9 @@ class MainScheduleScreen extends StatefulWidget {
 }
 
 class _MainScheduleScreenState extends State<MainScheduleScreen> {
-  DateTime _focusedDate = DateTime.now();
+  DateTime _currentMonth = DateTime.now();
 
-  // 근무 유형 목록 ('종일' 제외됨)
+  // '종일'이 완전히 삭제된 4대 근무 유형
   final List<String> _shiftTypes = [
     '주간 (08:30 - 17:30)',
     '오전 (06:30 - 14:30)',
@@ -409,7 +409,15 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     '야간 (22:30 - 06:30)',
   ];
 
-  // 1. 관리자 전용 회원 목록 조회 및 비밀번호 수정 다이얼로그
+  Color _getShiftColor(String shift) {
+    if (shift.contains('주간')) return Colors.blue.shade700;
+    if (shift.contains('오전')) return Colors.orange.shade700;
+    if (shift.contains('오후')) return Colors.green.shade700;
+    if (shift.contains('야간')) return Colors.purple.shade700;
+    return Colors.blueGrey;
+  }
+
+  // 1. 관리자 전용 사원 관리 & 비밀번호 초기화 다이얼로그
   void _showUserManagerDialog() {
     showDialog(
       context: context,
@@ -440,7 +448,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                           child: Icon(Icons.person, color: Colors.white, size: 20),
                         ),
                         title: Text('${userData['name']} (사번: $empId)', style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text('현재 비밀번호: ${userData['password']}'),
+                        subtitle: Text('비밀번호: ${userData['password']}'),
                         trailing: ElevatedButton.icon(
                           icon: const Icon(Icons.edit, size: 14),
                           label: const Text('수정'),
@@ -461,17 +469,14 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('닫기'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기')),
           ],
         ),
       ),
     );
   }
 
-  // 2. 사원 정보(성명 및 비밀번호) 직접 수정 다이얼로그
+  // 사원 정보 수정 모달
   void _showEditUserDialog(String empId, String currentName, String currentPw, VoidCallback onUpdated) {
     final nameEditCtrl = TextEditingController(text: currentName);
     final pwEditCtrl = TextEditingController(text: currentPw);
@@ -492,7 +497,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             TextField(
               controller: pwEditCtrl,
               decoration: const InputDecoration(
-                labelText: '새 비밀번호 (분실 시 초기화)',
+                labelText: '새 비밀번호 (분실 시 변경)',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.lock_reset),
               ),
@@ -527,7 +532,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 3. 관리자 전용 게시글 등록 다이얼로그
+  // 2. 관리자 게시글 등록 모달
   void _showCreatePostDialog() {
     final titleCtrl = TextEditingController();
     final contentCtrl = TextEditingController();
@@ -562,10 +567,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('취소'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF1B365D),
@@ -602,33 +604,47 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 4. 근태 기록 등록 다이얼로그
+  // 3. 근태 기록 모달 ('종일' 없음)
   void _showAddShiftDialog(DateTime date) {
-    String selectedShift = _shiftTypes[0];
     final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final existingShift = (globalShifts[widget.employeeId] ?? {})[dateStr];
+    String selectedShift = existingShift ?? _shiftTypes[0];
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text('$dateStr 근무 등록', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          title: Text('$dateStr 근무 설정', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
-            children: _shiftTypes.map((type) {
-              return RadioListTile<String>(
-                title: Text(type, style: const TextStyle(fontSize: 14)),
-                value: type,
-                groupValue: selectedShift,
-                onChanged: (val) {
-                  if (val != null) {
-                    setDialogState(() => selectedShift = val);
-                  }
-                },
-              );
-            }).toList(),
+            children: [
+              ..._shiftTypes.map((type) {
+                return RadioListTile<String>(
+                  title: Text(type, style: const TextStyle(fontSize: 14)),
+                  value: type,
+                  groupValue: selectedShift,
+                  onChanged: (val) {
+                    if (val != null) {
+                      setDialogState(() => selectedShift = val);
+                    }
+                  },
+                );
+              }),
+            ],
           ),
           actions: [
+            if (existingShift != null)
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    globalShifts[widget.employeeId]?.remove(dateStr);
+                  });
+                  saveAllData();
+                  Navigator.pop(ctx);
+                },
+                child: const Text('근무 삭제', style: TextStyle(color: Colors.red)),
+              ),
             TextButton(
               onPressed: () => Navigator.pop(ctx),
               child: const Text('취소'),
@@ -645,7 +661,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 saveAllData();
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('근무가 등록되었습니다.'), backgroundColor: Colors.green),
+                  const SnackBar(content: Text('근무가 정상적으로 저장되었습니다.'), backgroundColor: Colors.green),
                 );
               },
               child: const Text('저장'),
@@ -656,22 +672,41 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
+  // 캘린더 날짜 생성기
+  List<DateTime?> _buildMonthDays(DateTime month) {
+    final firstDay = DateTime(month.year, month.month, 1);
+    final lastDay = DateTime(month.year, month.month + 1, 0);
+    final startWeekday = firstDay.weekday % 7; // 일(0) ~ 토(6)
+
+    final List<DateTime?> days = [];
+    for (int i = 0; i < startWeekday; i++) {
+      days.add(null);
+    }
+    for (int d = 1; d <= lastDay.day; d++) {
+      days.add(DateTime(month.year, month.month, d));
+    }
+    while (days.length % 7 != 0) {
+      days.add(null);
+    }
+    return days;
+  }
+
   @override
   Widget build(BuildContext context) {
     final userShifts = globalShifts[widget.employeeId] ?? {};
+    final days = _buildMonthDays(_currentMonth);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.isAdmin ? 'KT&G 근무관리 [관리자]' : 'KT&G 근무관리 (${widget.userName} 님)',
+          widget.isAdmin ? 'KT&G 근무관리 [관리자 모드]' : 'KT&G 근무관리 (${widget.userName} 님)',
           style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
         ),
         backgroundColor: const Color(0xFF1B365D),
         actions: [
-          // 관리자 전용 사원 계정 관리 및 비밀번호 수정 버튼
           if (widget.isAdmin)
             IconButton(
-              icon: const Icon(Icons.people_alt, color: Colors.white),
+              icon: const Icon(Icons.manage_accounts, color: Colors.white),
               tooltip: '사원 계정 및 비밀번호 관리',
               onPressed: _showUserManagerDialog,
             ),
@@ -686,6 +721,82 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           ),
         ],
       ),
+      // 스크린샷에 있던 원래 좌측 서랍 메뉴(Drawer) 복원
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: const BoxDecoration(color: Color(0xFF1B365D)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const CircleAvatar(
+                    backgroundColor: Colors.white,
+                    radius: 26,
+                    child: Icon(Icons.person, color: Color(0xFF1B365D), size: 32),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    '${widget.userName} ${widget.isAdmin ? "[관리자]" : "사원"}',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  Text(
+                    '사번: ${widget.employeeId}',
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.access_time_filled, color: Colors.blueAccent),
+              title: Text(widget.isAdmin ? '⏰ 근태기록 관리 및 등록' : '⏰ 근태기록 관리 및 조회'),
+              subtitle: const Text('오전, 오후, 야간 및 추가 근무 관리'),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+              onTap: () {
+                Navigator.pop(context);
+                _showAddShiftDialog(DateTime.now());
+              },
+            ),
+            if (widget.isAdmin) ...[
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.admin_panel_settings, color: Colors.teal),
+                title: const Text('사원 계정 및 비밀번호 관리'),
+                subtitle: const Text('가입자 조회 및 분실 비밀번호 초기화'),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showUserManagerDialog();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.campaign, color: Colors.deepOrange),
+                title: const Text('공지사항 및 게시글 등록'),
+                subtitle: const Text('새로운 전사 공지 등록'),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showCreatePostDialog();
+                },
+              ),
+            ],
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.redAccent),
+              title: const Text('로그아웃'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+      // 관리자 모드 전용 플로팅 글쓰기 버튼
       floatingActionButton: widget.isAdmin
           ? FloatingActionButton.extended(
               backgroundColor: const Color(0xFF1B365D),
@@ -697,112 +808,191 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 관리자 전용 사원 관리 바로가기 배너
-            if (widget.isAdmin)
+            // 관리자 모드일 때만 뜨는 사원 관리 카드
+            if (widget.isAdmin) ...[
               Card(
                 color: const Color(0xFF1B365D).withOpacity(0.08),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 child: ListTile(
                   leading: const Icon(Icons.admin_panel_settings, color: Color(0xFF1B365D), size: 32),
                   title: const Text('사원 계정 관리 및 비밀번호 변경', style: TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text('현재 가입된 사원: 총 ${globalUsers.length}명 (비밀번호 분실 시 재설정 가능)'),
+                  subtitle: Text('현재 가입된 사원 수: 총 ${globalUsers.length}명'),
                   trailing: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1B365D), foregroundColor: Colors.white),
                     onPressed: _showUserManagerDialog,
-                    child: const Text('관리 열기'),
+                    child: const Text('사원 관리 열기'),
                   ),
                 ),
               ),
-            if (widget.isAdmin) const SizedBox(height: 14),
+              const SizedBox(height: 12),
+            ],
 
-            // 상단 공지사항 및 게시판 영역
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  '📢 사내 공지 및 게시판',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B365D)),
-                ),
-                if (widget.isAdmin)
-                  TextButton.icon(
-                    onPressed: _showCreatePostDialog,
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text('새 글 작성'),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (globalPosts.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12.0),
-                child: Text('등록된 공지사항이 없습니다.'),
-              )
-            else
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: globalPosts.length,
-                itemBuilder: (ctx, idx) {
-                  final post = globalPosts[idx];
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    child: ListTile(
-                      title: Text(post['title'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text('${post['author']} | ${post['date']}\n${post['content']}'),
-                      isThreeLine: true,
+            // 공지사항 카드
+            Card(
+              elevation: 1,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(14.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          '📢 사내 공지 및 게시판',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1B365D)),
+                        ),
+                        if (widget.isAdmin)
+                          TextButton.icon(
+                            onPressed: _showCreatePostDialog,
+                            icon: const Icon(Icons.add, size: 16),
+                            label: const Text('새 글 작성'),
+                          ),
+                      ],
                     ),
-                  );
-                },
+                    const Divider(height: 16),
+                    if (globalPosts.isEmpty)
+                      const Text('등록된 공지사항이 없습니다.')
+                    else
+                      ...globalPosts.map((post) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('• ${post['title']}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                Text('   ${post['content']}', style: const TextStyle(color: Colors.black87, fontSize: 13)),
+                                Text('   ${post['author']} | ${post['date']}', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                              ],
+                            ),
+                          )),
+                  ],
+                ),
               ),
-            const Divider(height: 36, thickness: 1.5),
-
-            // 캘린더 및 근무 등록 영역
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '📅 ${_focusedDate.year}년 ${_focusedDate.month}월 근무 일정',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B365D)),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () => _showAddShiftDialog(_focusedDate),
-                  icon: const Icon(Icons.access_time, size: 16),
-                  label: const Text('오늘 근태 등록'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1B365D),
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
 
-            // 7일간 근무 뷰어
+            // 월간 캘린더 네비게이터 및 그리드 카드
             Card(
               elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
-                  children: List.generate(7, (index) {
-                    final day = DateTime.now().add(Duration(days: index));
-                    final dayStr = '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
-                    final shift = userShifts[dayStr] ?? '미등록';
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.chevron_left),
+                          onPressed: () {
+                            setState(() {
+                              _currentMonth = DateTime(_currentMonth.year, _currentMonth.month - 1, 1);
+                            });
+                          },
+                        ),
+                        Text(
+                          '${_currentMonth.year}년 ${_currentMonth.month}월',
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1B365D)),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.chevron_right),
+                          onPressed: () {
+                            setState(() {
+                              _currentMonth = DateTime(_currentMonth.year, _currentMonth.month + 1, 1);
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
 
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: shift == '미등록' ? Colors.grey.shade200 : const Color(0xFF1B365D).withOpacity(0.1),
-                        child: Text('${day.day}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    // 요일 헤더
+                    Row(
+                      children: ['일', '월', '화', '수', '목', '금', '토'].map((day) {
+                        Color col = Colors.black87;
+                        if (day == '일') col = Colors.red;
+                        if (day == '토') col = Colors.blue;
+                        return Expanded(
+                          child: Center(
+                            child: Text(day, style: TextStyle(fontWeight: FontWeight.bold, color: col)),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const Divider(height: 20),
+
+                    // 월간 캘린더 그리드
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: days.length,
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 7,
+                        childAspectRatio: 0.85,
+                        crossAxisSpacing: 4,
+                        mainAxisSpacing: 4,
                       ),
-                      title: Text('$dayStr 근무'),
-                      trailing: Chip(
-                        label: Text(shift, style: TextStyle(color: shift == '미등록' ? Colors.grey : const Color(0xFF1B365D))),
-                      ),
-                      onTap: () => _showAddShiftDialog(day),
-                    );
-                  }),
+                      itemBuilder: (context, index) {
+                        final date = days[index];
+                        if (date == null) {
+                          return const SizedBox.shrink();
+                        }
+
+                        final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+                        final shift = userShifts[dateStr];
+                        final isToday = date.year == DateTime.now().year && date.month == DateTime.now().month && date.day == DateTime.now().day;
+
+                        return InkWell(
+                          onTap: () => _showAddShiftDialog(date),
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: isToday ? Colors.blue.withOpacity(0.06) : Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: isToday ? const Color(0xFF1B365D) : Colors.grey.shade200,
+                                width: isToday ? 1.5 : 1,
+                              ),
+                            ),
+                            padding: const EdgeInsets.all(4.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${date.day}',
+                                  style: TextStyle(
+                                    fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+                                    color: date.weekday == DateTime.sunday
+                                        ? Colors.red
+                                        : (date.weekday == DateTime.saturday ? Colors.blue : Colors.black87),
+                                  ),
+                                ),
+                                const Spacer(),
+                                if (shift != null)
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+                                    decoration: BoxDecoration(
+                                      color: _getShiftColor(shift),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      shift.split(' ')[0], // '주간', '오전' 등으로 표시
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ),
             ),
