@@ -3189,7 +3189,6 @@ class MonthlyVacationListScreen extends StatelessWidget {
   }
 }
 
-// 7. 사내 게시판 & 근무표 (컴파일 오류 완전 해결본)
 class BulletinBoardScreen extends StatefulWidget {
   final bool isAdmin;
   final String userName;
