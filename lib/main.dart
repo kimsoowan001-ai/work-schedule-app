@@ -1164,7 +1164,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                                     },
                                     child: const CircleAvatar(
                                       radius: 10,
-                                      backgroundColor: Colors.black54,
+                                      backgroundColor: Colors.black70,
                                       child: Icon(Icons.close, size: 14, color: Colors.white),
                                     ),
                                   ),
@@ -2775,6 +2775,7 @@ class _EmergencyApprovalHistoryScreenState
   }
 }
 
+// 5. 근태기록 관리 및 조회 화면 (관리자 삭제 기능 추가)
 class AttendanceManagementScreen extends StatefulWidget {
   final bool isAdmin;
   final String currentUserName;
@@ -3039,6 +3040,35 @@ class _AttendanceManagementScreenState
     );
   }
 
+  // 관리자 근태 기록 개별 삭제 함수
+  void _confirmDeleteAttendance(int index) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('근태 기록 삭제'),
+        content: const Text('선택한 사원의 근태 기록을 삭제하시겠습니까?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () {
+              setState(() {
+                globalAttendanceRecords.removeAt(index);
+              });
+              saveAllData();
+              widget.onUpdated();
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('근태 기록이 삭제되었습니다.'), backgroundColor: Colors.redAccent),
+              );
+            },
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     List<Map<String, dynamic>> records = List.from(globalAttendanceRecords);
@@ -3106,6 +3136,13 @@ class _AttendanceManagementScreenState
                         '${r['shiftDetail']} | 메모: ${r['extraNote']}',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                         overflow: TextOverflow.ellipsis),
+                    trailing: widget.isAdmin
+                        ? IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                            tooltip: '근태 기록 삭제',
+                            onPressed: () => _confirmDeleteAttendance(idx),
+                          )
+                        : null,
                   ),
                 );
               },
@@ -3154,7 +3191,6 @@ class MonthlyVacationListScreen extends StatelessWidget {
   }
 }
 
-// 7. 사내 게시판 & 근무표 (다중 사진 + 슬라이드 확대 뷰어)
 class BulletinBoardScreen extends StatefulWidget {
   final bool isAdmin;
   final String userName;
@@ -3364,7 +3400,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                                             margin: const EdgeInsets.all(4),
                                             decoration: BoxDecoration(
-                                              color: Colors.black54,
+                                              color: Colors.black.withOpacity(0.54),
                                               borderRadius: BorderRadius.circular(4),
                                             ),
                                             child: const Row(
