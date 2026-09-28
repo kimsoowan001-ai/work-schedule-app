@@ -15,14 +15,14 @@
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // ============================================================
-// 핀 설정
+// ?� ?�정
 // ============================================================
 const int startPadPin    = 4;
 const int finishButtonPin = 19;
 const int resetButtonPin  = 23;
 const int buzzerPin       = 18;
 
-// 탑 패드 HC-05
+// ???�드 HC-05
 HardwareSerial TopBT(2);
 String topMessage = "";
 
@@ -47,9 +47,9 @@ unsigned long lastBleTimeSend = 0;
 const unsigned long bleTimeInterval = 100;
 
 // ============================================================
-// 공동 연동 훈련 Wi-Fi
-// ESP32 자체 AP + TCP 서버
-// 앱 기본값: 192.168.4.1 : 4210
+// 공동 ?�동 ?�련 Wi-Fi
+// ESP32 ?�체 AP + TCP ?�버
+// ??기본�? 192.168.4.1 : 4210
 // ============================================================
 const char* GROUP_WIFI_SSID = "SC_TIMER_GROUP";
 const char* GROUP_WIFI_PASSWORD = "speed4210";
@@ -80,16 +80,16 @@ void updateWifiTimer();
 
 
 // ============================================================
-// TOP 10 저장
+// TOP 10 ?�??
 // ============================================================
 Preferences preferences;
 
 const int TOP_COUNT = 10;
 
-// 밀리초 단위로 저장
+// 밀리초 ?�위�??�??
 unsigned long topTimes[TOP_COUNT];
 
-// 빈 기록 표시용
+// �?기록 ?�시??
 const unsigned long EMPTY_TIME = 0xFFFFFFFF;
 
 // ============================================================
@@ -98,7 +98,7 @@ const unsigned long EMPTY_TIME = 0xFFFFFFFF;
 const unsigned long debounceTime = 5;
 
 // ============================================================
-// 타이머 상태
+// ?�?�머 ?�태
 // ============================================================
 enum TimerState {
   READY_STATE,
@@ -112,7 +112,7 @@ enum TimerState {
 TimerState currentState = READY_STATE;
 
 // ============================================================
-// 발판 상태
+// 발판 ?�태
 // ============================================================
 bool footPressed = false;
 
@@ -130,7 +130,7 @@ bool lastResetState = HIGH;
 unsigned long resetDebounceTime = 0;
 
 // ============================================================
-// 시간
+// ?�간
 // ============================================================
 unsigned long stateStartTime = 0;
 unsigned long raceStartTime = 0;
@@ -148,7 +148,7 @@ bool detailedFalseStartScreen = false;
 int countdownStep = 0;
 
 // ============================================================
-// 함수 선언
+// ?�수 ?�언
 // ============================================================
 void setupBle();
 
@@ -189,7 +189,7 @@ void showHoldScreen();
 void receiveTopBluetooth();
 
 // ============================================================
-// BLE 연결 콜백
+// BLE ?�결 콜백
 // ============================================================
 class TimerServerCallbacks : public BLEServerCallbacks {
 
@@ -207,7 +207,7 @@ class TimerServerCallbacks : public BLEServerCallbacks {
 
     delay(30);
 
-    // 연결되면 현재 TOP10 전송
+    // ?�결?�면 ?�재 TOP10 ?�송
     sendTop10ToBle();
   }
 
@@ -254,16 +254,16 @@ void setup() {
     17
   );
 
-  // TOP10 저장공간 시작
+  // TOP10 ?�?�공�??�작
   preferences.begin("sctimer", false);
 
-  // 저장된 TOP10 불러오기
+  // ?�?�된 TOP10 불러?�기
   loadTop10();
 
-  // BLE - 기존 개인 연결 유지
+  // BLE - 기존 개인 ?�결 ?��?
   setupBle();
 
-  // Wi-Fi - 공동 연동 훈련
+  // Wi-Fi - 공동 ?�동 ?�련
   setupGroupWifi();
 
   showReadyScreen();
@@ -295,7 +295,7 @@ void loop() {
 
   receiveTopBluetooth();
 
-  // 공동 연동 Wi-Fi 접속/해제 관리
+  // 공동 ?�동 Wi-Fi ?�속/?�제 관�?
   acceptGroupClients();
   readGroupClientCommands();
   cleanupGroupClients();
@@ -306,12 +306,12 @@ void loop() {
 
   updateBleTimer();
 
-  // 공동 연동 Wi-Fi 실시간 타이머
+  // 공동 ?�동 Wi-Fi ?�시�??�?�머
   updateWifiTimer();
 }
 
 // ============================================================
-// 공동 연동 Wi-Fi 초기화
+// 공동 ?�동 Wi-Fi 초기??
 // ============================================================
 void setupGroupWifi() {
 
@@ -339,7 +339,7 @@ void setupGroupWifi() {
 }
 
 // ============================================================
-// 공동 연동 새 휴대폰 접속
+// 공동 ?�동 ???��????�속
 // ============================================================
 void acceptGroupClients() {
 
@@ -349,10 +349,10 @@ void acceptGroupClients() {
     return;
   }
 
-  // Arduino ESP32 WiFiServer.available()는 새 접속뿐 아니라
-  // 기존 클라이언트에 수신 데이터가 있을 때도 그 클라이언트를 돌려줄 수 있다.
-  // 같은 TCP 소켓을 다른 슬롯에 중복 등록하면 CLAIM 전송 순간 연결이 끊길 수 있으므로
-  // remoteIP/remotePort로 이미 등록된 소켓인지 먼저 확인한다.
+  // Arduino ESP32 WiFiServer.available()?????�속�??�니??
+  // 기존 ?�라?�언?�에 ?�신 ?�이?��? ?�을 ?�도 �??�라?�언?��? ?�려�????�다.
+  // 같�? TCP ?�켓???�른 ?�롯??중복 ?�록?�면 CLAIM ?�송 ?�간 ?�결???�길 ???�으므�?
+  // remoteIP/remotePort�??��? ?�록???�켓?��? 먼�? ?�인?�다.
   for (int i = 0; i < MAX_GROUP_CLIENTS; i++) {
     if (groupClients[i] && groupClients[i].connected()) {
       if (groupClients[i].remoteIP() == candidate.remoteIP() &&
@@ -404,10 +404,10 @@ void acceptGroupClients() {
 }
 
 // ============================================================
-// 공동 연동 앱 -> ESP32 명령 수신
-// CLAIM|사용자ID|이름
-// RELEASE|사용자ID
-// RUN_SAVED|사용자ID
+// 공동 ?�동 ??-> ESP32 명령 ?�신
+// CLAIM|?�용?�ID|?�름
+// RELEASE|?�용?�ID
+// RUN_SAVED|?�용?�ID
 // ============================================================
 void readGroupClientCommands() {
 
@@ -522,14 +522,14 @@ void handleGroupCommand(int slot, const String& command) {
   }
 
   if (command.startsWith("RUN_SAVED|")) {
-    // 앱이 자기 계정 저장을 완료했다는 알림.
-    // 계측 상태에는 영향을 주지 않고 로그만 남긴다.
+    // ?�이 ?�기 계정 ?�?�을 ?�료?�다???�림.
+    // 계측 ?�태?�는 ?�향??주�? ?�고 로그�??�긴??
     Serial.println("GROUP RUN SAVED ACK");
     return;
   }
 }
 
-// 특정 공동연동 휴대폰 한 대에만 전송
+// ?�정 공동?�동 ?��??????�?�만 ?�송
 void sendWifiToClient(int slot, const String& message) {
 
   if (slot < 0 || slot >= MAX_GROUP_CLIENTS) {
@@ -542,7 +542,7 @@ void sendWifiToClient(int slot, const String& message) {
 }
 
 // ============================================================
-// 끊어진 공동연동 폰 정리
+// ?�어�?공동?�동 ???�리
 // ============================================================
 void cleanupGroupClients() {
 
@@ -559,7 +559,7 @@ void cleanupGroupClients() {
 }
 
 // ============================================================
-// 공동연동 앱 전체에 메시지 전송
+// 공동?�동 ???�체??메시지 ?�송
 // ============================================================
 void sendWifiMessage(const String& message) {
 
@@ -576,7 +576,7 @@ void sendWifiMessage(const String& message) {
 }
 
 // ============================================================
-// 현재 상태 Wi-Fi 전송
+// ?�재 ?�태 Wi-Fi ?�송
 // ============================================================
 void sendCurrentStateToWifi() {
 
@@ -609,7 +609,7 @@ void sendCurrentStateToWifi() {
 }
 
 // ============================================================
-// 공동연동 Wi-Fi 실시간 TIME
+// 공동?�동 Wi-Fi ?�시�?TIME
 // ============================================================
 void updateWifiTimer() {
 
@@ -638,7 +638,7 @@ void updateWifiTimer() {
 }
 
 // ============================================================
-// TOP10 Wi-Fi 전송
+// TOP10 Wi-Fi ?�송
 // ============================================================
 void sendTop10ToWifi() {
 
@@ -664,7 +664,7 @@ void sendTop10ToWifi() {
 }
 
 // ============================================================
-// BLE 초기화
+// BLE 초기??
 // ============================================================
 void setupBle() {
 
@@ -741,7 +741,7 @@ void sendBleMessage(
 }
 
 // ============================================================
-// 현재 상태 BLE
+// ?�재 ?�태 BLE
 // ============================================================
 void sendCurrentStateToBle() {
 
@@ -774,7 +774,7 @@ void sendCurrentStateToBle() {
 }
 
 // ============================================================
-// 실시간 TIME BLE
+// ?�시�?TIME BLE
 // ============================================================
 void updateBleTimer() {
 
@@ -809,7 +809,7 @@ void updateBleTimer() {
 }
 
 // ============================================================
-// TOP10 불러오기
+// TOP10 불러?�기
 // ============================================================
 void loadTop10() {
 
@@ -831,7 +831,7 @@ void loadTop10() {
 }
 
 // ============================================================
-// TOP10 저장
+// TOP10 ?�??
 // ============================================================
 void saveTop10() {
 
@@ -852,1001 +852,9 @@ void saveTop10() {
 }
 
 // ============================================================
-// 새 기록 TOP10 추가 + 자동 정렬
+// ??기록 TOP10 추�? + ?�동 ?�렬
 // ============================================================
 void addTop10Record(
   unsigned long newTime
 ) {
 
-  // 비정상적인 0 기록 방지
-  if (newTime == 0) {
-    return;
-  }
-
-  // 들어갈 위치 찾기
-  int insertIndex = -1;
-
-  for (
-    int i = 0;
-    i < TOP_COUNT;
-    i++
-  ) {
-
-    if (
-      topTimes[i] == EMPTY_TIME ||
-      newTime < topTimes[i]
-    ) {
-
-      insertIndex = i;
-      break;
-    }
-  }
-
-  // TOP10에 못 들어가는 기록
-  if (insertIndex == -1) {
-
-    Serial.println(
-      "RECORD NOT IN TOP10"
-    );
-
-    return;
-  }
-
-  // 뒤 기록 한 칸씩 밀기
-  for (
-    int i = TOP_COUNT - 1;
-    i > insertIndex;
-    i--
-  ) {
-
-    topTimes[i] =
-      topTimes[i - 1];
-  }
-
-  // 새 기록 삽입
-  topTimes[insertIndex] =
-    newTime;
-
-  // 플래시 저장
-  saveTop10();
-
-  Serial.print(
-    "NEW TOP10 RECORD: "
-  );
-
-  Serial.print(
-    newTime / 1000.0,
-    3
-  );
-
-  Serial.print(
-    " sec / RANK "
-  );
-
-  Serial.println(
-    insertIndex + 1
-  );
-
-  printTop10Serial();
-}
-
-// ============================================================
-// TOP10 BLE 전송
-// ============================================================
-void sendTop10ToBle() {
-
-  if (!phoneConnected) {
-    return;
-  }
-
-  Serial.println(
-    "SEND TOP10 TO APP"
-  );
-
-  for (
-    int i = 0;
-    i < TOP_COUNT;
-    i++
-  ) {
-
-    String message =
-      "TOP" +
-      String(i + 1) +
-      ":";
-
-    if (
-      topTimes[i] ==
-      EMPTY_TIME
-    ) {
-
-      message += "--";
-
-    } else {
-
-      message +=
-        String(
-          topTimes[i] /
-          1000.0,
-          3
-        );
-    }
-
-    sendBleMessage(
-      message
-    );
-
-    // BLE Notify 연속 전송 안정화
-    delay(30);
-  }
-}
-
-// ============================================================
-// Serial TOP10 출력
-// ============================================================
-void printTop10Serial() {
-
-  Serial.println();
-  Serial.println(
-    "========== TOP 10 =========="
-  );
-
-  for (
-    int i = 0;
-    i < TOP_COUNT;
-    i++
-  ) {
-
-    Serial.print(
-      i + 1
-    );
-
-    Serial.print(
-      ". "
-    );
-
-    if (
-      topTimes[i] ==
-      EMPTY_TIME
-    ) {
-
-      Serial.println(
-        "---"
-      );
-
-    } else {
-
-      Serial.print(
-        topTimes[i] /
-        1000.0,
-        3
-      );
-
-      Serial.println(
-        " s"
-      );
-    }
-  }
-
-  Serial.println(
-    "============================"
-  );
-
-  Serial.println();
-}
-
-// ============================================================
-// START PAD edge capture - LCD/BLE/Wi-Fi와 무관하게 실제 핀 변화 순간 저장
-// ============================================================
-void IRAM_ATTR onStartPadChange() {
-  if (digitalRead(startPadPin) == HIGH) {
-    footReleaseEdgeUs = micros();
-    footReleaseEdgePending = true;
-  }
-}
-
-// ============================================================
-// 스타트 발판
-// ============================================================
-void checkStartPad() {
-
-  // ISR이 잡은 실제 발판 해제 시각을 먼저 처리
-  if (footReleaseEdgePending) {
-    noInterrupts();
-    unsigned long releaseUs = footReleaseEdgeUs;
-    footReleaseEdgePending = false;
-    interrupts();
-
-    if (currentState == RUNNING_STATE && !reactionCaptured) {
-      long rtUs = (long)(releaseUs - raceStartMicros);
-      if (rtUs >= 0) {
-        reactionTime = (unsigned long)rtUs / 1000UL;
-        reactionCaptured = true;
-        float rtSec = rtUs / 1000000.0f;
-
-        Serial.print("REACTION EDGE: ");
-        Serial.print(rtSec, 3);
-        Serial.println(" s");
-
-        if (rtUs < 100000L) {
-          lcd.clear();
-          lcd.setCursor(0,0); lcd.print("FALSE START");
-          lcd.setCursor(0,1); lcd.print("RT +"); lcd.print(rtSec,3);
-          sendBleMessage("RT " + String(rtSec,3));
-          sendWifiMessage("RT " + String(rtSec,3));
-          sendBleMessage("FALSE_RT +" + String(rtSec,3));
-          sendWifiMessage("FALSE_RT +" + String(rtSec,3));
-          detailedFalseStartScreen = true;
-          triggerFalseStart();
-          return;
-        }
-
-        sendBleMessage("RT " + String(rtSec,3));
-        sendWifiMessage("RT " + String(rtSec,3));
-      }
-    }
-    else if ((currentState == COUNTDOWN_STATE || currentState == HOLD_STATE) &&
-             scheduledGoMicros != 0) {
-      long earlyUs = (long)(releaseUs - scheduledGoMicros);
-      float earlySec = earlyUs / 1000000.0f;
-
-      Serial.print("FALSE START EDGE: ");
-      Serial.print(earlySec,3);
-      Serial.println(" s");
-
-      lcd.clear();
-      lcd.setCursor(0,0); lcd.print("FALSE START");
-      lcd.setCursor(0,1); lcd.print("RT "); lcd.print(earlySec,3);
-      sendBleMessage("FALSE_RT " + String(earlySec,3));
-      sendWifiMessage("FALSE_RT " + String(earlySec,3));
-      detailedFalseStartScreen = true;
-      triggerFalseStart();
-      return;
-    }
-  }
-
-  bool rawState =
-    digitalRead(
-      startPadPin
-    );
-
-  if (
-    rawState !=
-    lastRawFootState
-  ) {
-
-    footDebounceTime =
-      millis();
-
-    lastRawFootState =
-      rawState;
-
-  }
-
-  if (
-    millis() -
-    footDebounceTime >=
-    debounceTime &&
-
-    rawState !=
-    stableFootState
-  ) {
-
-    stableFootState =
-      rawState;
-
-    if (
-      stableFootState ==
-      LOW
-    ) {
-
-      handleFootPress();
-
-    } else {
-
-      handleFootRelease();
-    }
-  }
-}
-
-// ============================================================
-// 발판 누름
-// ============================================================
-void handleFootPress() {
-
-  footPressed = true;
-
-  Serial.println(
-    "FOOT PRESS"
-  );
-
-  if (
-    currentState ==
-    READY_STATE
-  ) {
-
-    currentState =
-      HOLD_STATE;
-
-    stateStartTime =
-      millis();
-    scheduledGoMicros = micros() + 4000000UL;
-
-    showHoldScreen();
-
-    sendBleMessage(
-      "STATE:HOLD"
-    );
-    sendWifiMessage("STATE:HOLD");
-  }
-}
-
-// ============================================================
-// 발판 뗌
-// ============================================================
-void handleFootRelease() {
-  footPressed = false;
-  Serial.println("FOOT RELEASE STABLE");
-  // 반응속도/부정출발 판정은 ISR edge timestamp에서 이미 처리한다.
-}
-
-// ============================================================
-// 경기 상태
-// ============================================================
-void updateRaceState() {
-
-  unsigned long now =
-    millis();
-
-  if (
-    currentState ==
-    HOLD_STATE &&
-
-    now -
-    stateStartTime >=
-    1000
-  ) {
-
-    beginCountdown();
-  }
-
-  if (
-    currentState ==
-    COUNTDOWN_STATE
-  ) {
-
-    runCountdown(now);
-  }
-
-  if (
-    currentState ==
-    FALSE_START_STATE &&
-
-    now -
-    stateStartTime >=
-    2000
-  ) {
-
-    resetTimer();
-  }
-}
-
-// ============================================================
-// 카운트다운 시작
-// ============================================================
-void beginCountdown() {
-
-  currentState =
-    COUNTDOWN_STATE;
-
-  countdownStep = 0;
-
-  stateStartTime =
-    millis();
-  scheduledGoMicros = micros() + 3000000UL;
-
-  lcd.clear();
-
-  lcd.setCursor(
-    0,
-    0
-  );
-
-  lcd.print(
-    "GET READY"
-  );
-
-  lcd.setCursor(
-    0,
-    1
-  );
-
-  lcd.print(
-    "HOLD FOOT"
-  );
-
-  Serial.println(
-    "COUNTDOWN"
-  );
-
-  sendBleMessage(
-    "STATE:COUNTDOWN"
-  );
-  sendWifiMessage("STATE:COUNTDOWN");
-}
-
-// ============================================================
-// 카운트다운
-// ============================================================
-void runCountdown(
-  unsigned long now
-) {
-
-  unsigned long elapsed =
-    now -
-    stateStartTime;
-
-  if (countdownStep == 0 && elapsed >= 1000) {
-    lcd.clear();
-    lcd.setCursor(7, 0);
-    lcd.print("3");
-    tone(buzzerPin, 1000, 180);
-    countdownStep = 1;
-    sendBleMessage("BEEP:1");
-    sendWifiMessage("BEEP:1");
-  }
-
-  if (countdownStep == 1 && elapsed >= 2000) {
-    lcd.clear();
-    lcd.setCursor(7, 0);
-    lcd.print("2");
-    tone(buzzerPin, 1000, 180);
-    countdownStep = 2;
-    sendBleMessage("BEEP:2");
-    sendWifiMessage("BEEP:2");
-  }
-
-  if (countdownStep == 2 && elapsed >= 3000) {
-    lcd.clear();
-    lcd.setCursor(7, 0);
-    lcd.print("1");
-
-    // GO 기준시각을 먼저 확정하고 바로 부저를 시작한다.
-    // 네트워크/LCD 작업은 그 뒤에 실행한다.
-    raceStartMicros = micros();
-    raceStartTime = millis();
-    footReleaseEdgePending = false;
-    tone(buzzerPin, 2000, 700);
-    startRaceTimer();
-
-    // 계측 기준을 잡은 뒤 앱에 알림
-    sendBleMessage("BEEP:START");
-    sendWifiMessage("BEEP:START");
-  }
-}
-
-// ============================================================
-// 타이머 START
-// ============================================================
-void startRaceTimer() {
-
-  // raceStartMicros/raceStartTime은 GO tone 직전에 이미 캡처됨
-  Serial.print("GO US: ");
-  Serial.println(raceStartMicros);
-
-  lastLcdUpdate = 0;
-
-  lastBleTimeSend = 0;
-
-  reactionTime = 0;
-
-  reactionCaptured = false;
-
-  currentState =
-    RUNNING_STATE;
-
-  lcd.clear();
-
-  lcd.setCursor(
-    0,
-    0
-  );
-
-  lcd.print(
-    "RT ---.---"
-  );
-
-  lcd.setCursor(
-    0,
-    1
-  );
-
-  lcd.print(
-    "00.000"
-  );
-
-  Serial.println(
-    "TIMER STARTED"
-  );
-
-  sendBleMessage(
-    "STATE:RUNNING"
-  );
-  sendWifiMessage("STATE:RUNNING");
-
-  sendBleMessage(
-    "TIME 0.000"
-  );
-  sendWifiMessage("TIME 0.000");
-}
-
-// ============================================================
-// FALSE START
-// ============================================================
-void triggerFalseStart() {
-
-  currentState =
-    FALSE_START_STATE;
-
-  stateStartTime =
-    millis();
-
-  noTone(
-    buzzerPin
-  );
-
-  tone(
-    buzzerPin,
-    500,
-    2000
-  );
-
-  if (!detailedFalseStartScreen) {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("FALSE START");
-    lcd.setCursor(0, 1);
-    lcd.print("TRY AGAIN");
-  }
-
-  Serial.println(
-    "FALSE START"
-  );
-
-  sendBleMessage(
-    "STATE:FALSE_START"
-  );
-  sendWifiMessage("STATE:FALSE_START");
-}
-
-// ============================================================
-// 중앙 Finish 백업버튼
-// ============================================================
-void checkFinishButton() {
-
-  bool currentStateRead =
-    digitalRead(
-      finishButtonPin
-    );
-
-  if (
-    currentStateRead !=
-    lastFinishState &&
-
-    millis() -
-    finishDebounceTime >=
-    debounceTime
-  ) {
-
-    finishDebounceTime =
-      millis();
-
-    lastFinishState =
-      currentStateRead;
-
-    if (
-      currentStateRead ==
-      LOW &&
-
-      currentState ==
-      RUNNING_STATE
-    ) {
-
-      stopRaceTimer();
-    }
-  }
-}
-
-// ============================================================
-// 경기 종료
-// ============================================================
-void stopRaceTimer() {
-
-  finishTime =
-    millis() -
-    raceStartTime;
-
-  currentState =
-    FINISHED_STATE;
-
-  noTone(
-    buzzerPin
-  );
-
-  lcd.clear();
-
-  lcd.setCursor(
-    0,
-    0
-  );
-
-  if (
-    reactionCaptured
-  ) {
-
-    lcd.print(
-      "RT "
-    );
-
-    printTimeValue(
-      reactionTime
-    );
-
-  } else {
-
-    lcd.print(
-      "RT ---.---"
-    );
-  }
-
-  lcd.setCursor(
-    0,
-    1
-  );
-
-  lcd.print(
-    "TIME "
-  );
-
-  printTimeValue(
-    finishTime
-  );
-
-  Serial.print(
-    "FINISH TIME: "
-  );
-
-  Serial.print(
-    finishTime
-  );
-
-  Serial.println(
-    " ms"
-  );
-
-  // ----------------------------------------------------------
-  // ★ TOP10 등록
-  // ----------------------------------------------------------
-  addTop10Record(
-    finishTime
-  );
-
-  // ----------------------------------------------------------
-  // 기존 BLE 기록 전송
-  // ----------------------------------------------------------
-  sendBleMessage(
-    "TIME " +
-    String(
-      finishTime /
-      1000.0,
-      3
-    )
-  );
-
-  sendWifiMessage(
-    "TIME " +
-    String(
-      finishTime / 1000.0,
-      3
-    )
-  );
-
-  if (
-    reactionCaptured
-  ) {
-
-    sendBleMessage(
-      "RT " +
-      String(
-        reactionTime /
-        1000.0,
-        3
-      )
-    );
-  }
-
-  sendBleMessage(
-    "STATE:FINISHED"
-  );
-  sendWifiMessage("STATE:FINISHED");
-
-  delay(50);
-
-  // ----------------------------------------------------------
-  // ★ TOP10 전체 BLE 전송
-  // ----------------------------------------------------------
-  sendTop10ToBle();
-  sendTop10ToWifi();
-}
-
-// ============================================================
-// RESET 버튼
-// ============================================================
-void checkResetButton() {
-
-  bool currentStateRead =
-    digitalRead(
-      resetButtonPin
-    );
-
-  if (
-    currentStateRead !=
-    lastResetState &&
-
-    millis() -
-    resetDebounceTime >=
-    debounceTime
-  ) {
-
-    resetDebounceTime =
-      millis();
-
-    lastResetState =
-      currentStateRead;
-
-    if (
-      currentStateRead ==
-      LOW
-    ) {
-
-      resetTimer();
-    }
-  }
-}
-
-// ============================================================
-// RESET
-// ============================================================
-void resetTimer() {
-
-  currentState =
-    READY_STATE;
-
-  footPressed = false;
-
-  reactionCaptured = false;
-  detailedFalseStartScreen = false;
-  scheduledGoMicros = 0;
-  noInterrupts();
-  footReleaseEdgePending = false;
-  footReleaseEdgeUs = 0;
-  interrupts();
-
-  reactionTime = 0;
-
-  finishTime = 0;
-
-  countdownStep = 0;
-
-  noTone(
-    buzzerPin
-  );
-
-  showReadyScreen();
-
-  Serial.println(
-    "RESET"
-  );
-
-  sendBleMessage(
-    "STATE:READY"
-  );
-  sendWifiMessage("STATE:READY");
-
-  sendBleMessage(
-    "RESET"
-  );
-  sendWifiMessage("RESET");
-
-  // V3.4 - RESET은 계측만 초기화하고 공동 연동 차례는 유지
-  // groupOwnerId / groupOwnerName은 여기서 지우지 않는다.
-  // 차례 해제는 RELEASE 명령에서만 처리한다.
-  sendWifiMessage("RESET_KEEP_OWNER");
-
-  if (groupOwnerId.length() > 0) {
-    sendWifiMessage("OWNER|" + groupOwnerId + "|" + groupOwnerName);
-    Serial.print("RESET - OWNER KEPT: ");
-    Serial.println(groupOwnerName);
-  } else {
-    Serial.println("RESET - NO GROUP OWNER");
-  }
-}
-
-// ============================================================
-// LCD 실시간
-// ============================================================
-void updateTimerDisplay() {
-
-  if (
-    currentState !=
-    RUNNING_STATE
-  ) {
-
-    return;
-  }
-
-  unsigned long now =
-    millis();
-
-  if (
-    now -
-    lastLcdUpdate <
-    10
-  ) {
-
-    return;
-  }
-
-  lastLcdUpdate =
-    now;
-
-  unsigned long elapsedTime =
-    now -
-    raceStartTime;
-
-  // 16x2: 1행=계측시간, 2행=반응속도
-  lcd.setCursor(0, 0);
-  lcd.print("TIME ");
-  printTimeValue(elapsedTime);
-  lcd.print("   ");
-
-  lcd.setCursor(0, 1);
-  if (reactionCaptured) {
-    lcd.print("RT   ");
-    printTimeValue(reactionTime);
-    lcd.print("   ");
-  } else {
-    lcd.print("RT   --.---     ");
-  }
-}
-
-// ============================================================
-// 시간 출력
-// ============================================================
-void printTimeValue(
-  unsigned long milliseconds
-) {
-
-  unsigned long seconds =
-    milliseconds /
-    1000;
-
-  unsigned long millisPart =
-    milliseconds %
-    1000;
-
-  char timeText[12];
-
-  snprintf(
-    timeText,
-    sizeof(timeText),
-    "%02lu.%03lu",
-    seconds,
-    millisPart
-  );
-
-  lcd.print(
-    timeText
-  );
-}
-
-// ============================================================
-// READY 화면
-// ============================================================
-void showReadyScreen() {
-
-  lcd.clear();
-
-  lcd.setCursor(
-    0,
-    0
-  );
-
-  lcd.print(
-    "SPEED TIMER"
-  );
-
-  lcd.setCursor(
-    0,
-    1
-  );
-
-  lcd.print(
-    "READY"
-  );
-}
-
-// ============================================================
-// HOLD 화면
-// ============================================================
-void showHoldScreen() {
-
-  lcd.clear();
-
-  lcd.setCursor(
-    0,
-    0
-  );
-
-  lcd.print(
-    "HOLD"
-  );
-
-  lcd.setCursor(
-    0,
-    1
-  );
-
-  lcd.print(
-    "WAIT..."
-  );
-}
-
-// ============================================================
-// 탑 HC-05
-// ============================================================
-void receiveTopBluetooth() {
-
-  while (
-    TopBT.available()
-  ) {
-
-    char receivedChar =
-      TopBT.read();
-
-    if (
-      receivedChar ==
-      '\n'
-    ) {
-
-      topMessage.trim();
-
-      if (
-        topMessage ==
-        "FINISH"
-      ) {
-
-        Serial.println(
-          "TOP FINISH RECEIVED"
-        );
-
-        if (
-          currentState ==
-          RUNNING_STATE
-        ) {
-
-          stopRaceTimer();
-        }
-      }
-
-      topMessage = "";
-
-    } else if (
-      receivedChar !=
-      '\r'
-    ) {
-
-      topMessage +=
-        receivedChar;
-    }
-  }
-}
