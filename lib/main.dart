@@ -12,9 +12,8 @@ const String firestoreBaseUrl =
 Map<String, List<Map<String, String>>> globalScheduleMap = {};
 List<Map<String, String>> globalApprovalRequests = [];
 List<Map<String, dynamic>> globalAttendanceRecords = [];
-Map<String, Map<String, String>> globalUsers = {}; // {empId: {'name': name, 'password': pw}}
+Map<String, Map<String, String>> globalUsers = {};
 
-// 현재 시간 포맷 함수 (YYYY-MM-DD HH:mm)
 String getCurrentDateTimeString() {
   final now = DateTime.now();
   final y = now.year;
@@ -25,7 +24,6 @@ String getCurrentDateTimeString() {
   return "$y-$m-$d $h:$min";
 }
 
-// Firebase 서버에 데이터 즉시 동기화 전송 (전역 함수)
 Future<void> saveAllData() async {
   try {
     final schedJson = jsonEncode(globalScheduleMap);
@@ -122,7 +120,6 @@ class WorkScheduleApp extends StatelessWidget {
   }
 }
 
-// 1. KT&G 스플래시 화면
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -185,7 +182,6 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
-// 2. 보안 로그인 & 회원가입 화면
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -549,7 +545,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 3. 메인 스케줄 화면
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -832,7 +827,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 관리자 전용 사원 관리 및 비밀번호 수정 다이얼로그
   void _openUserManagerDialog() {
     showDialog(
       context: context,
@@ -844,8 +838,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               Icon(Icons.manage_accounts, color: Color(0xFF1B365D)),
               SizedBox(width: 8),
               Expanded(
-                child: Text('사원 계정 관리 및 비밀번호 초기화',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                child: Text('사원 계정 관리 및 비번 초기화',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                     overflow: TextOverflow.ellipsis),
               ),
             ],
@@ -866,17 +860,15 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                           backgroundColor: Color(0xFF1B365D),
                           child: Icon(Icons.person, color: Colors.white, size: 20),
                         ),
-                        title: Text('${userData['name']} (사번: $empId)',
+                        title: Text('${userData['name']} ($empId)',
                             style: const TextStyle(fontWeight: FontWeight.bold)),
                         subtitle: Text('비밀번호: ${userData['password']}'),
-                        trailing: ElevatedButton.icon(
-                          icon: const Icon(Icons.lock_reset, size: 14),
-                          label: const Text('비번 재설정'),
+                        trailing: ElevatedButton(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.blueGrey.shade700,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 8),
+                                horizontal: 8, vertical: 4),
                           ),
                           onPressed: () {
                             _showEditUserDialog(
@@ -887,6 +879,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                               setState(() {});
                             });
                           },
+                          child: const Text('비번수정', style: TextStyle(fontSize: 12)),
                         ),
                       );
                     },
@@ -901,7 +894,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 개별 사원 비밀번호/성명 수정 모달
   void _showEditUserDialog(String empId, String currentName, String currentPw,
       VoidCallback onUpdated) {
     final nameEditCtrl = TextEditingController(text: currentName);
@@ -925,7 +917,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             TextField(
               controller: pwEditCtrl,
               decoration: const InputDecoration(
-                labelText: '새 비밀번호 (분실 시 초기화)',
+                labelText: '새 비밀번호',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.lock_reset),
               ),
@@ -967,7 +959,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 메인 및 게시판 공통 게시글 작성 다이얼로그
   void _openCreatePostDialog() {
     final titleCtrl = TextEditingController();
     final contentCtrl = TextEditingController();
@@ -1189,7 +1180,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     }
   }
 
-  // 지난 근무 기록 ('종일' 제외됨)
   void _showPastWorkRecordDialog() {
     if (_selectedDate == null) return;
     final dateKey = _formatDateKey(_selectedDate!);
@@ -1842,11 +1832,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ==========================================
-            // [관리자 전용 대시보드 메인 고정 영역]
-            // ==========================================
             if (widget.isAdmin) ...[
-              // 1. 긴급승인 대기 건수 카드 (텍스트 반응형 줄바꿈 적용)
               if (pendingApprovals.isNotEmpty)
                 Card(
                   color: Colors.deepOrange.shade50,
@@ -1863,7 +1849,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                             const Icon(Icons.warning_amber_rounded, color: Colors.deepOrange),
                             const SizedBox(width: 8),
                             Expanded(
-                              child: Text('🚨 미처리 긴급승인 요청 (${pendingApprovals.length}건 대기중)',
+                              child: Text('🚨 미처리 긴급승인 (${pendingApprovals.length}건)',
                                   style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange, fontSize: 14),
                                   overflow: TextOverflow.ellipsis),
                             ),
@@ -1881,7 +1867,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                               subtitle: Text(
-                                  '대상: ${req['date']} | 신청: ${req['requestTime'] ?? '시간미기록'}\n사유: ${req['reason']}',
+                                  '대상: ${req['date']} | 신청: ${req['requestTime'] ?? '미기록'}\n사유: ${req['reason']}',
                                   overflow: TextOverflow.ellipsis,
                                   maxLines: 2,
                                   style: const TextStyle(fontSize: 12)),
@@ -1931,38 +1917,51 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 ),
               if (pendingApprovals.isNotEmpty) const SizedBox(height: 8),
 
-              // 2. 관리자 바로가기 도구 모음 (텍스트 안 잘리도록 Wrap 적용)
               Card(
                 color: Colors.indigo.shade50,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6.0),
-                  child: Wrap(
-                    alignment: WrapAlignment.spaceAround,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 4,
-                    runSpacing: 4,
+                  padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
+                  child: Row(
                     children: [
-                      TextButton.icon(
-                        icon: const Icon(Icons.manage_accounts, color: Colors.indigo, size: 18),
-                        label: const Text('사원 비번 관리', style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 13)),
-                        onPressed: _openUserManagerDialog,
+                      Expanded(
+                        child: TextButton.icon(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          icon: const Icon(Icons.manage_accounts, color: Colors.indigo, size: 16),
+                          label: const Text('비번관리', style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 12), overflow: TextOverflow.ellipsis),
+                          onPressed: _openUserManagerDialog,
+                        ),
                       ),
-                      TextButton.icon(
-                        icon: const Icon(Icons.edit_note, color: Colors.indigo, size: 18),
-                        label: const Text('게시글 등록', style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 13)),
-                        onPressed: _openCreatePostDialog,
+                      Expanded(
+                        child: TextButton.icon(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          icon: const Icon(Icons.edit_note, color: Colors.indigo, size: 16),
+                          label: const Text('글쓰기', style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 12), overflow: TextOverflow.ellipsis),
+                          onPressed: _openCreatePostDialog,
+                        ),
                       ),
-                      TextButton.icon(
-                        icon: const Icon(Icons.people, color: Colors.indigo, size: 18),
-                        label: const Text('전체 종합현황', style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 13)),
-                        onPressed: () {
-                          Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (c) => AllEmployeesOverviewScreen(
-                                      scheduleMap: globalScheduleMap,
-                                      onScheduleUpdated: () => setState(() {}))));
-                        },
+                      Expanded(
+                        child: TextButton.icon(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          icon: const Icon(Icons.people, color: Colors.indigo, size: 16),
+                          label: const Text('종합현황', style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 12), overflow: TextOverflow.ellipsis),
+                          onPressed: () {
+                            Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (c) => AllEmployeesOverviewScreen(
+                                        scheduleMap: globalScheduleMap,
+                                        onScheduleUpdated: () => setState(() {}))));
+                          },
+                        ),
                       ),
                     ],
                   ),
@@ -1971,7 +1970,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               const SizedBox(height: 8),
             ],
 
-            // 공지사항 카드
             Card(
               color: Colors.amber.shade50,
               child: Padding(
@@ -1999,7 +1997,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             ),
             const SizedBox(height: 8),
 
-            // 메인 화면 고정 최신 게시글 뷰어
             Card(
               elevation: 1,
               child: Padding(
@@ -2012,7 +2009,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         const Icon(Icons.dynamic_feed, size: 18, color: Color(0xFF1B365D)),
                         const SizedBox(width: 6),
                         const Expanded(
-                          child: Text('📋 사내 게시판 최신글',
+                          child: Text('📋 사내 게시판',
                               style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                               overflow: TextOverflow.ellipsis),
                         ),
@@ -2053,7 +2050,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             ),
             const SizedBox(height: 8),
 
-            // 캘린더 네비게이터
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -2074,7 +2070,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             _buildCalendarGrid(),
             const SizedBox(height: 12),
 
-            // 하단 사원 근태 및 신청 종합 현황 카드
             Card(
               elevation: 2,
               child: Padding(
@@ -2087,7 +2082,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         Expanded(
                           child: Text(
                               widget.isAdmin
-                                  ? '👥 $selectedKey 전체 사원 현황'
+                                  ? '👥 $selectedKey 전체 사원'
                                   : '📅 $selectedKey 내 신청',
                               style: const TextStyle(
                                   fontSize: 15, fontWeight: FontWeight.bold),
@@ -2317,7 +2312,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   }
 }
 
-// 4. 긴급승인 전용 이력 관리 화면
 class EmergencyApprovalHistoryScreen extends StatefulWidget {
   final bool isAdmin;
   final VoidCallback onUpdated;
@@ -2436,7 +2430,6 @@ class _EmergencyApprovalHistoryScreenState
   }
 }
 
-// 5. 근태기록 카테고리 (showDateRangePicker 전용 기간선택기 탑재 & '종일' 영구 제외)
 class AttendanceManagementScreen extends StatefulWidget {
   final bool isAdmin;
   final String currentUserName;
@@ -2496,7 +2489,6 @@ class _AttendanceManagementScreenState
                             border: OutlineInputBorder())),
                     const SizedBox(height: 14),
 
-                    // 확실한 날짜 구간 선택 (showDateRangePicker)
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -2521,7 +2513,7 @@ class _AttendanceManagementScreenState
                                 ),
                                 firstDate: DateTime(2020),
                                 lastDate: DateTime(2035),
-                                helpText: '근무 등록 기간을 선택하세요',
+                                helpText: '근무 등록 기간을 드래그/선택하세요',
                                 saveText: '선택완료',
                               );
                               if (pickedRange != null) {
@@ -2548,20 +2540,20 @@ class _AttendanceManagementScreenState
                                   Expanded(
                                     child: Text(
                                       isSameDay
-                                          ? '$sDateStr (당일 하루)'
-                                          : '$sDateStr  ~  $eDateStr',
+                                          ? '$sDateStr (하루)'
+                                          : '$sDateStr ~ $eDateStr',
                                       style: const TextStyle(
                                           fontWeight: FontWeight.bold,
-                                          fontSize: 14,
+                                          fontSize: 13,
                                           color: Color(0xFF1B365D)),
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                  const Text('변경 >',
+                                  const Text('날짜선택 >',
                                       style: TextStyle(
                                           color: Colors.blueAccent,
                                           fontWeight: FontWeight.bold,
-                                          fontSize: 13)),
+                                          fontSize: 12)),
                                 ],
                               ),
                             ),
@@ -2589,7 +2581,6 @@ class _AttendanceManagementScreenState
                     ),
                     const SizedBox(height: 14),
 
-                    // 근무 시간대 선택 (요청 반영: '종일' 영구 제외)
                     DropdownButtonFormField<String>(
                       value: selectedShift,
                       decoration: const InputDecoration(
@@ -2781,7 +2772,6 @@ class _AttendanceManagementScreenState
   }
 }
 
-// 6. 월별 휴가자 타임라인 리스트 화면
 class MonthlyVacationListScreen extends StatelessWidget {
   final Map<String, List<Map<String, String>>> scheduleMap;
   const MonthlyVacationListScreen({super.key, required this.scheduleMap});
@@ -2819,7 +2809,6 @@ class MonthlyVacationListScreen extends StatelessWidget {
   }
 }
 
-// 7. 게시판 & 근무표 (전용 페이지)
 class BulletinBoardScreen extends StatefulWidget {
   final bool isAdmin;
   final String userName;
@@ -2974,7 +2963,6 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
   }
 }
 
-// 8. 전체 사원 종합 현황
 class AllEmployeesOverviewScreen extends StatelessWidget {
   final Map<String, List<Map<String, String>>> scheduleMap;
   final VoidCallback onScheduleUpdated;
