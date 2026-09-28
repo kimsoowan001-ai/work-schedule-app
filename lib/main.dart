@@ -3406,7 +3406,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                                               children: [
                                                 Icon(Icons.zoom_in, color: Colors.white, size: 12),
                                                 SizedBox(width: 2),
-                                                Text('확대', style: TextStyle(color: Colors.white, fontSize: 11)),
+                                                Text('확대', style: TextStyle(color: Colors.white, fontSize: 10)),
                                               ],
                                             ),
                                           ),
