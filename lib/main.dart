@@ -1179,7 +1179,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 ],
               ),
             ),
-          ),
+          ],
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
@@ -1360,7 +1360,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     "${widget.userName}님이 $dateKey 일정 삭제를 승인 요청했습니다.");
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('관리자에게 승인 요청이 전송되었습니다.')));
+                    const SnackBar(content: Text('관리자에게 삭제 승인 요청이 전송되었습니다.')));
               },
               child: const Text('삭제 승인 요청'),
             ),
@@ -2775,7 +2775,6 @@ class _EmergencyApprovalHistoryScreenState
   }
 }
 
-// 5. 근태기록 관리 및 조회 화면 (관리자 삭제 기능 포함)
 class AttendanceManagementScreen extends StatefulWidget {
   final bool isAdmin;
   final String currentUserName;
