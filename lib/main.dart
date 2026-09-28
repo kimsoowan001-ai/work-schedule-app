@@ -25,7 +25,7 @@ String getCurrentDateTimeString() {
   return "$y-$m-$d $h:$min";
 }
 
-// 스마트폰 고용량 사진 압축 최적화[cite: 4]
+// 스마트폰 고용량 사진 압축 최적화
 Future<String> compressAndConvertImage(html.File file) async {
   final reader = html.FileReader();
   reader.readAsDataUrl(file);
