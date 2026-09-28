@@ -3408,7 +3408,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                                               children: [
                                                 Icon(Icons.zoom_in, color: Colors.white, size: 12),
                                                 SizedBox(width: 2),
-                                                Text('확대', style: TextStyle(color: Colors.white, fontSize: 10)),
+                                                Text('확대', style: TextStyle(color: Colors.white, fontSize: 11)),
                                               ],
                                             ),
                                           ),
@@ -3438,6 +3438,10 @@ class AllEmployeesOverviewScreen extends StatelessWidget {
       {super.key,
       required this.scheduleMap,
       required this.onScheduleUpdated});
+
+  @override
+  Widget build(BuildContext context) {
+    }
 
   @override
   Widget build(BuildContext context) {
