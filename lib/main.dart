@@ -25,7 +25,7 @@ String getCurrentDateTimeString() {
   return "$y-$m-$d $h:$min";
 }
 
-// 스마트폰 고용량 사진을 초고속 웹 캔버스로 리사이즈 & JPEG 압축 (용량 최적화)
+// 스마트폰 고용량 사진 압축 최적화
 Future<String> compressAndConvertImage(html.File file) async {
   final reader = html.FileReader();
   reader.readAsDataUrl(file);
@@ -38,7 +38,7 @@ Future<String> compressAndConvertImage(html.File file) async {
 
   int width = img.width ?? 800;
   int height = img.height ?? 600;
-  const maxDim = 1024;
+  const maxDim = 800; // 용량 폭탄 방지를 위해 최대 800px로 압축
 
   if (width > maxDim || height > maxDim) {
     if (width > height) {
@@ -54,7 +54,30 @@ Future<String> compressAndConvertImage(html.File file) async {
   final ctx = canvas.context2D;
   ctx.drawImageScaled(img, 0, 0, width, height);
 
-  return canvas.toDataUrl('image/jpeg', 0.7);
+  return canvas.toDataUrl('image/jpeg', 0.6);
+}
+
+// 게시판/공지 전용 서버 강제 동기화 함수 (데이터 증발 원천 차단)
+Future<void> saveBoardAndNoticeToServer(String notice, List<Map<String, dynamic>> posts) async {
+  try {
+    final postsJson = jsonEncode(posts);
+    html.window.localStorage['ktng_notice'] = notice;
+    html.window.localStorage['ktng_bulletin_posts'] = postsJson;
+
+    await html.HttpRequest.request(
+      '$firestoreBaseUrl/board?key=$firestoreApiKey',
+      method: 'PATCH',
+      requestHeaders: {'Content-Type': 'application/json'},
+      sendData: jsonEncode({
+        'fields': {
+          'notice': {'stringValue': notice},
+          'posts': {'stringValue': postsJson},
+        }
+      }),
+    );
+  } catch (e) {
+    debugPrint("게시판 서버 저장 오류: $e");
+  }
 }
 
 Future<void> saveAllData() async {
@@ -741,6 +764,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         }
       } catch (_) {}
 
+      // 게시판 및 근무표 서버 동기화 강화
       try {
         final boardReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/board?key=$firestoreApiKey',
@@ -771,28 +795,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     }
   }
 
-  Future<void> _saveBoardToFirebase() async {
-    try {
-      final postsJson = jsonEncode(_posts);
-      html.window.localStorage['ktng_notice'] = _notice;
-      html.window.localStorage['ktng_bulletin_posts'] = postsJson;
-
-      await html.HttpRequest.request(
-        '$firestoreBaseUrl/board?key=$firestoreApiKey',
-        method: 'PATCH',
-        requestHeaders: {'Content-Type': 'application/json'},
-        sendData: jsonEncode({
-          'fields': {
-            'notice': {'stringValue': _notice},
-            'posts': {'stringValue': postsJson},
-          }
-        }),
-      );
-    } catch (e) {
-      debugPrint("게시판 서버 저장 오류: $e");
-    }
-  }
-
   void _confirmDeletePost(int index) {
     showDialog(
       context: context,
@@ -807,7 +809,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               setState(() {
                 _posts.removeAt(index);
               });
-              _saveBoardToFirebase();
+              saveBoardAndNoticeToServer(_notice, _posts);
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('게시글이 삭제되었습니다.'), backgroundColor: Colors.redAccent),
@@ -874,7 +876,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             onPressed: () {
               final newNotice = controller.text.trim();
               setState(() => _notice = newNotice);
-              _saveBoardToFirebase();
+              saveBoardAndNoticeToServer(_notice, _posts);
               Navigator.pop(ctx);
               _sendWebNotification("📢 [KT&G 공지사항]", newNotice);
               ScaffoldMessenger.of(context).showSnackBar(
@@ -1019,7 +1021,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 여러 장 사진 압축 및 등록 지원 다이얼로그 (메인)
+  // 다중 사진 게시글 작성 (서버 강제 동기화 적용)
   void _openCreatePostDialog() {
     final titleCtrl = TextEditingController();
     final contentCtrl = TextEditingController();
@@ -1063,7 +1065,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   ),
                   const SizedBox(height: 14),
 
-                  // 사진 다중 선택 및 누적 추가 버튼
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -1124,7 +1125,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       children: [
                         SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
                         SizedBox(width: 8),
-                        Text('사진 압축 및 최적화 중...', style: TextStyle(fontSize: 12, color: Colors.blueGrey)),
+                        Text('사진 최적화 중...', style: TextStyle(fontSize: 12, color: Colors.blueGrey)),
                       ],
                     ),
                   ],
@@ -1216,7 +1217,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       setState(() {
                         _posts.insert(0, newPost);
                       });
-                      _saveBoardToFirebase();
+                      saveBoardAndNoticeToServer(_notice, _posts); // 서버에 즉시 영구 저장
                       _sendWebNotification("📢 [새 게시글/근무표 등록]", t.isNotEmpty ? t : '새 근무표가 등록되었습니다.');
                       Navigator.pop(ctx);
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -1243,7 +1244,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           posts: _posts,
           onPostsUpdated: (updatedPosts) {
             setState(() => _posts = updatedPosts);
-            _saveBoardToFirebase();
+            saveBoardAndNoticeToServer(_notice, _posts);
           },
           sendNotification: _sendWebNotification,
         ),
@@ -1843,24 +1844,24 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 여러 장 사진을 슬라이드(페이지네이션)로 넘겨볼 수 있는 확대 뷰어 다이얼로그
-  void _showMultiImageZoomDialog(List<String> images, String title, {int initialIndex = 0}) {
-    final pageController = PageController(initialPage: initialIndex);
+  void _showImageZoomDialog(List<String> images, int initialIndex, String title) {
+    final PageController pageController = PageController(initialPage: initialIndex);
     int currentIndex = initialIndex;
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => Dialog(
-          insetPadding: const EdgeInsets.all(10),
+        builder: (context, setDialogState) => Dialog(
+          insetPadding: const EdgeInsets.all(8),
+          backgroundColor: Colors.black,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               AppBar(
                 title: Text('$title (${currentIndex + 1}/${images.length})',
-                    overflow: TextOverflow.ellipsis),
-                backgroundColor: const Color(0xFF1B365D),
+                    style: const TextStyle(fontSize: 15), overflow: TextOverflow.ellipsis),
+                backgroundColor: Colors.black,
                 foregroundColor: Colors.white,
                 actions: [
                   IconButton(
@@ -1869,47 +1870,47 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   )
                 ],
               ),
-              SizedBox(
-                height: 450,
+              Expanded(
                 child: PageView.builder(
                   controller: pageController,
                   itemCount: images.length,
                   onPageChanged: (idx) {
                     setDialogState(() => currentIndex = idx);
                   },
-                  itemBuilder: (context, index) {
+                  itemBuilder: (context, idx) {
                     return InteractiveViewer(
                       panEnabled: true,
                       minScale: 0.8,
                       maxScale: 4.0,
                       child: Center(
                         child: Image.network(
-                          images[index],
+                          images[idx],
                           fit: BoxFit.contain,
-                          errorBuilder: (c, e, s) => const Text('이미지를 불러올 수 없습니다.'),
                         ),
                       ),
                     );
                   },
                 ),
               ),
-              if (images.length > 1) ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  color: Colors.black87,
+              if (images.length > 1)
+                Padding(
+                  padding: const EdgeInsets.all(12.0),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.swipe, color: Colors.white70, size: 16),
-                      const SizedBox(width: 6),
-                      Text(
-                        '좌우로 넘겨서 사진 보기 (${currentIndex + 1}/${images.length})',
-                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                    children: List.generate(
+                      images.length,
+                      (dotIdx) => Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 3),
+                        width: currentIndex == dotIdx ? 10 : 6,
+                        height: currentIndex == dotIdx ? 10 : 6,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: currentIndex == dotIdx ? Colors.white : Colors.white38,
+                        ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
-              ],
             ],
           ),
         ),
@@ -2273,7 +2274,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             ),
             const SizedBox(height: 8),
 
-            // 메인 화면 고정 사내 게시판 (다중 이미지 뷰어 지원)
+            // 메인 화면 고정 사내 게시판
             Card(
               elevation: 1,
               child: Padding(
@@ -2324,8 +2325,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                             contentPadding: EdgeInsets.zero,
                             leading: postImages.isNotEmpty
                                 ? InkWell(
-                                    onTap: () => _showMultiImageZoomDialog(
-                                        postImages, post['title'] ?? '근무표', initialIndex: 0),
+                                    onTap: () => _showImageZoomDialog(
+                                        postImages, 0, post['title'] ?? '근무표'),
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(6),
                                       child: Stack(
@@ -2383,7 +2384,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                                 : null,
                             onTap: () {
                               if (postImages.isNotEmpty) {
-                                _showMultiImageZoomDialog(postImages, post['title'] ?? '근무표', initialIndex: 0);
+                                _showImageZoomDialog(postImages, 0, post['title'] ?? '근무표');
                               } else {
                                 _openBulletinScreen();
                               }
@@ -3156,7 +3157,7 @@ class MonthlyVacationListScreen extends StatelessWidget {
   }
 }
 
-// 7. 게시판 & 근무표 (다중 사진 및 슬라이드 확대 뷰어)
+// 7. 사내 게시판 & 근무표 (다중 사진 + 슬라이드 확대 뷰어)
 class BulletinBoardScreen extends StatefulWidget {
   final bool isAdmin;
   final String userName;
@@ -3177,287 +3178,7 @@ class BulletinBoardScreen extends StatefulWidget {
 }
 
 class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
-  void _openCreatePostDialog() {
-    final titleCtrl = TextEditingController();
-    final contentCtrl = TextEditingController();
-    List<String> selectedImages = [];
-    bool isProcessingImages = false;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Row(
-            children: [
-              Icon(Icons.campaign, color: Color(0xFF1B365D)),
-              SizedBox(width: 8),
-              Text('게시글 및 근무표 등록',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
-            ],
-          ),
-          content: SizedBox(
-            width: 440,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    controller: titleCtrl,
-                    decoration: const InputDecoration(
-                        labelText: '제목 (예: 10월 근무표 공지)', border: OutlineInputBorder()),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: contentCtrl,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                        labelText: '내용 / 안내사항', border: OutlineInputBorder()),
-                  ),
-                  const SizedBox(height: 14),
-
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      side: BorderSide(
-                          color: selectedImages.isNotEmpty
-                              ? Colors.green
-                              : const Color(0xFF1B365D)),
-                    ),
-                    icon: Icon(
-                      selectedImages.isNotEmpty
-                          ? Icons.add_photo_alternate
-                          : Icons.add_a_photo_outlined,
-                      color: selectedImages.isNotEmpty
-                          ? Colors.green
-                          : const Color(0xFF1B365D),
-                    ),
-                    label: Text(
-                      selectedImages.isNotEmpty
-                          ? '사진 ${selectedImages.length}장 첨부됨 (+ 사진 추가)'
-                          : '📷 사진 / 근무표 첨부 (여러 장 선택 가능)',
-                      style: TextStyle(
-                          color: selectedImages.isNotEmpty
-                              ? Colors.green.shade800
-                              : const Color(0xFF1B365D),
-                          fontWeight: FontWeight.bold),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    onPressed: isProcessingImages
-                        ? null
-                        : () {
-                            final uploadInput = html.FileUploadInputElement();
-                            uploadInput.accept = 'image/*';
-                            uploadInput.multiple = true;
-                            uploadInput.click();
-
-                            uploadInput.onChange.listen((e) async {
-                              final files = uploadInput.files;
-                              if (files != null && files.isNotEmpty) {
-                                setDialogState(() => isProcessingImages = true);
-                                for (var file in files) {
-                                  try {
-                                    final compressed = await compressAndConvertImage(file);
-                                    selectedImages.add(compressed);
-                                  } catch (err) {
-                                    debugPrint("이미지 압축 오류: $err");
-                                  }
-                                }
-                                setDialogState(() => isProcessingImages = false);
-                              }
-                            });
-                          },
-                  ),
-
-                  if (isProcessingImages) ...[
-                    const SizedBox(height: 10),
-                    const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                        SizedBox(width: 8),
-                        Text('사진 압축 및 최적화 중...', style: TextStyle(fontSize: 12, color: Colors.blueGrey)),
-                      ],
-                    ),
-                  ],
-
-                  if (selectedImages.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Container(
-                      height: 100,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.all(8),
-                        itemCount: selectedImages.length,
-                        itemBuilder: (context, idx) {
-                          return Container(
-                            margin: const EdgeInsets.only(right: 8),
-                            child: Stack(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(6),
-                                  child: Image.network(
-                                    selectedImages[idx],
-                                    width: 84,
-                                    height: 84,
-                                    fit: BoxFit.cover,
-                                  ),
-                                ),
-                                Positioned(
-                                  top: 2,
-                                  right: 2,
-                                  child: InkWell(
-                                    onTap: () {
-                                      setDialogState(() {
-                                        selectedImages.removeAt(idx);
-                                      });
-                                    },
-                                    child: const CircleAvatar(
-                                      radius: 10,
-                                      backgroundColor: Colors.black70,
-                                      child: Icon(Icons.close, size: 14, color: Colors.white),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1B365D),
-                foregroundColor: Colors.white,
-              ),
-              onPressed: isProcessingImages
-                  ? null
-                  : () {
-                      final t = titleCtrl.text.trim();
-                      final c = contentCtrl.text.trim();
-                      if (t.isEmpty && selectedImages.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text('제목 또는 사진을 등록해주세요.'),
-                              backgroundColor: Colors.redAccent),
-                        );
-                        return;
-                      }
-                      final newPost = {
-                        'id': DateTime.now().millisecondsSinceEpoch.toString(),
-                        'title': t.isNotEmpty ? t : '근무표 공지',
-                        'content': c,
-                        'author': widget.userName,
-                        'image': selectedImages.isNotEmpty ? selectedImages.first : '',
-                        'images': selectedImages,
-                        'date':
-                            '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}',
-                      };
-                      final updated = List<Map<String, dynamic>>.from(widget.posts)
-                        ..insert(0, newPost);
-                      widget.onPostsUpdated(updated);
-                      widget.sendNotification("📢 [새 게시글/근무표 등록]", t.isNotEmpty ? t : '새 근무표가 등록되었습니다.');
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content: Text('근무표/게시글이 성공적으로 등록되었습니다.'),
-                            backgroundColor: Colors.green),
-                      );
-                    },
-              child: const Text('등록 완료'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showMultiImageZoomDialog(List<String> images, String title, {int initialIndex = 0}) {
-    final pageController = PageController(initialPage: initialIndex);
-    int currentIndex = initialIndex;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => Dialog(
-          insetPadding: const EdgeInsets.all(10),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              AppBar(
-                title: Text('$title (${currentIndex + 1}/${images.length})',
-                    overflow: TextOverflow.ellipsis),
-                backgroundColor: const Color(0xFF1B365D),
-                foregroundColor: Colors.white,
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(ctx),
-                  )
-                ],
-              ),
-              SizedBox(
-                height: 450,
-                child: PageView.builder(
-                  controller: pageController,
-                  itemCount: images.length,
-                  onPageChanged: (idx) {
-                    setDialogState(() => currentIndex = idx);
-                  },
-                  itemBuilder: (context, index) {
-                    return InteractiveViewer(
-                      panEnabled: true,
-                      minScale: 0.8,
-                      maxScale: 4.0,
-                      child: Center(
-                        child: Image.network(
-                          images[index],
-                          fit: BoxFit.contain,
-                          errorBuilder: (c, e, s) => const Text('이미지를 불러올 수 없습니다.'),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              if (images.length > 1) ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  color: Colors.black87,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.swipe, color: Colors.white70, size: 16),
-                      const SizedBox(width: 6),
-                      Text(
-                        '좌우로 넘겨서 사진 보기 (${currentIndex + 1}/${images.length})',
-                        style: const TextStyle(color: Colors.white, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
+  // 별도 게시판 화면 내 게시글 삭제 확인 팝업
   void _confirmDeletePostInBulletin(int idx) {
     showDialog(
       context: context,
@@ -3483,6 +3204,80 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
     );
   }
 
+  void _showImageZoomDialog(List<String> images, int initialIndex, String title) {
+    final PageController pageController = PageController(initialPage: initialIndex);
+    int currentIndex = initialIndex;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => Dialog(
+          insetPadding: const EdgeInsets.all(8),
+          backgroundColor: Colors.black,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AppBar(
+                title: Text('$title (${currentIndex + 1}/${images.length})',
+                    style: const TextStyle(fontSize: 15), overflow: TextOverflow.ellipsis),
+                backgroundColor: Colors.black,
+                foregroundColor: Colors.white,
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx),
+                  )
+                ],
+              ),
+              Expanded(
+                child: PageView.builder(
+                  controller: pageController,
+                  itemCount: images.length,
+                  onPageChanged: (idx) {
+                    setDialogState(() => currentIndex = idx);
+                  },
+                  itemBuilder: (context, idx) {
+                    return InteractiveViewer(
+                      panEnabled: true,
+                      minScale: 0.8,
+                      maxScale: 4.0,
+                      child: Center(
+                        child: Image.network(
+                          images[idx],
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              if (images.length > 1)
+                Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(
+                      images.length,
+                      (dotIdx) => Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 3),
+                        width: currentIndex == dotIdx ? 10 : 6,
+                        height: currentIndex == dotIdx ? 10 : 6,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: currentIndex == dotIdx ? Colors.white : Colors.white38,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   List<String> _extractImages(Map<String, dynamic> post) {
     List<String> list = [];
     if (post['images'] != null && post['images'] is List) {
@@ -3500,15 +3295,6 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
           title: const Text('📋 사내 게시판 & 근무표'),
           backgroundColor: const Color(0xFF1B365D),
           foregroundColor: Colors.white),
-      floatingActionButton: widget.isAdmin
-          ? FloatingActionButton.extended(
-              backgroundColor: const Color(0xFF1B365D),
-              foregroundColor: Colors.white,
-              icon: const Icon(Icons.add_photo_alternate),
-              label: const Text('근무표/글 작성'),
-              onPressed: _openCreatePostDialog,
-            )
-          : null,
       body: widget.posts.isEmpty
           ? const Center(child: Text('등록된 게시글이 없습니다.'))
           : ListView.builder(
@@ -3559,10 +3345,10 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                                 return Container(
                                   margin: const EdgeInsets.only(right: 8),
                                   child: InkWell(
-                                    onTap: () => _showMultiImageZoomDialog(
+                                    onTap: () => _showImageZoomDialog(
                                         postImages,
-                                        post['title'] ?? '근무표',
-                                        initialIndex: imgIdx),
+                                        imgIdx,
+                                        '${post['title'] ?? "근무표"}'),
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(8),
                                       child: Stack(
@@ -3590,7 +3376,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                                               children: [
                                                 Icon(Icons.zoom_in, color: Colors.white, size: 12),
                                                 SizedBox(width: 2),
-                                                Text('확대', style: TextStyle(color: Colors.white, fontSize: 10)),
+                                                Text('확대', style: TextStyle(color: Colors.white, fontSize: 11)),
                                               ],
                                             ),
                                           ),
