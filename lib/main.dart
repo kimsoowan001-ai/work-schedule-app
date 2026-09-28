@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'dart:html' as html;
 
@@ -151,6 +151,7 @@ class _SplashScreenState extends State<SplashScreen> {
 }
 
 // 2. 로그인 화면
+// 2. 보안 로그인 & 회원가입 화면
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -159,70 +160,141 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _employeeIdController = TextEditingController();
-  final _nameController = TextEditingController();
-  final _adminCodeController = TextEditingController();
-  bool _isAdminMode = false;
+  bool _isSignUpMode = false;
 
+  final _empIdController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _pwController = TextEditingController();
+  final _confirmPwController = TextEditingController();
+  final _adminCodeController = TextEditingController();
+
+  bool _isAdminMode = false;
   static const String correctAdminCode = "ktngsj";
 
   @override
   void initState() {
     super.initState();
-    _adminCodeController.clear();
+    _loadUsersData();
+  }
+
+  Future<void> _loadUsersData() async {
     try {
-      final savedEmpId = html.window.localStorage['last_emp_id'] ?? '';
-      final savedName = html.window.localStorage['last_name'] ?? '';
-      if (savedEmpId.isNotEmpty) _employeeIdController.text = savedEmpId;
-      if (savedName.isNotEmpty) _nameController.text = savedName;
+      final local = html.window.localStorage['ktng_users_data'];
+      if (local != null && local.isNotEmpty) {
+        final decoded = jsonDecode(local) as Map<String, dynamic>;
+        globalUsers = decoded.map((k, v) => MapEntry(k, Map<String, String>.from(v as Map)));
+      }
+
+      final res = await html.HttpRequest.request(
+        '$firestoreBaseUrl/users?key=$firestoreApiKey',
+        method: 'GET',
+      );
+      if (res.status == 200 && res.responseText != null) {
+        final body = jsonDecode(res.responseText!);
+        final jsonStr = body['fields']?['data']?['stringValue'];
+        if (jsonStr != null && jsonStr.isNotEmpty) {
+          final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
+          globalUsers = decoded.map((k, v) => MapEntry(k, Map<String, String>.from(v as Map)));
+          html.window.localStorage['ktng_users_data'] = jsonStr;
+        }
+      }
     } catch (_) {}
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _employeeIdController.dispose();
+    _empIdController.dispose();
     _nameController.dispose();
+    _pwController.dispose();
+    _confirmPwController.dispose();
     _adminCodeController.dispose();
     super.dispose();
   }
 
-  void _login() {
-    final empId = _employeeIdController.text.trim();
+  void _submitAuth() {
+    final empId = _empIdController.text.trim();
     final name = _nameController.text.trim();
+    final pw = _pwController.text.trim();
 
-    if (empId.isEmpty || name.isEmpty) {
+    if (empId.isEmpty || name.isEmpty || pw.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('사번과 성명을 모두 입력해주세요.'), backgroundColor: Colors.redAccent),
+        const SnackBar(content: Text('사번, 성명, 비밀번호를 모두 입력해주세요.'), backgroundColor: Colors.redAccent),
       );
       return;
     }
 
-    if (_isAdminMode && _adminCodeController.text.trim() != correctAdminCode) {
+    if (_isSignUpMode) {
+      final confirmPw = _confirmPwController.text.trim();
+      if (pw != confirmPw) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('비밀번호가 일치하지 않습니다.'), backgroundColor: Colors.redAccent),
+        );
+        return;
+      }
+      if (globalUsers.containsKey(empId)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('이미 등록된 사번입니다. 로그인해주세요.'), backgroundColor: Colors.redAccent),
+        );
+        return;
+      }
+      globalUsers[empId] = {'name': name, 'password': pw};
+      saveAllData();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('관리자 비밀코드가 올바르지 않습니다. (ktngsj)'), backgroundColor: Colors.redAccent),
+        const SnackBar(content: Text('회원가입 완료! 로그인해주세요.'), backgroundColor: Colors.green),
       );
-      return;
-    }
+      setState(() {
+        _isSignUpMode = false;
+        _pwController.clear();
+        _confirmPwController.clear();
+      });
+    } else {
+      if (_isAdminMode) {
+        if (_adminCodeController.text.trim() != correctAdminCode) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('관리자 비밀코드가 올바르지 않습니다.'), backgroundColor: Colors.redAccent),
+          );
+          return;
+        }
+      } else {
+        if (!globalUsers.containsKey(empId)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('등록되지 않은 사번입니다. 먼저 회원가입을 해주세요.'), backgroundColor: Colors.redAccent),
+          );
+          return;
+        }
+        final user = globalUsers[empId]!;
+        if (user['name'] != name) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('사번에 등록된 성명과 일치하지 않습니다.'), backgroundColor: Colors.redAccent),
+          );
+          return;
+        }
+        if (user['password'] != pw) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('비밀번호가 일치하지 않습니다.'), backgroundColor: Colors.redAccent),
+          );
+          return;
+        }
+      }
 
-    try {
-      html.window.localStorage['is_logged_in'] = 'true';
-      html.window.localStorage['last_emp_id'] = empId;
-      html.window.localStorage['last_name'] = name;
-      html.window.localStorage['is_admin'] = _isAdminMode.toString();
-    } catch (_) {}
+      try {
+        html.window.localStorage['is_logged_in'] = 'true';
+        html.window.localStorage['last_emp_id'] = empId;
+        html.window.localStorage['last_name'] = name;
+        html.window.localStorage['is_admin'] = _isAdminMode.toString();
+      } catch (_) {}
 
-    final bool adminStatus = _isAdminMode;
-    _adminCodeController.clear();
-
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => MainScheduleScreen(
-          employeeId: empId,
-          userName: name,
-          isAdmin: adminStatus,
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => MainScheduleScreen(
+            employeeId: empId,
+            userName: name,
+            isAdmin: _isAdminMode,
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   @override
@@ -233,7 +305,7 @@ class _LoginScreenState extends State<LoginScreen> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: Container(
-            constraints: const BoxConstraints(maxWidth: 400),
+            constraints: const BoxConstraints(maxWidth: 420),
             padding: const EdgeInsets.all(28.0),
             decoration: BoxDecoration(
               color: Colors.white,
@@ -257,66 +329,99 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                const Text(
-                  '근무 스케줄 관리',
+                Text(
+                  _isSignUpMode ? '신규 사원 계정 등록 (회원가입)' : '근무 스케줄 관리 시스템',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF333333)),
+                  style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: Color(0xFF1B365D)),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => setState(() => _isSignUpMode = false),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            border: Border(bottom: BorderSide(color: !_isSignUpMode ? const Color(0xFF1B365D) : Colors.transparent, width: 2.5)),
+                          ),
+                          child: Text('로그인', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, color: !_isSignUpMode ? const Color(0xFF1B365D) : Colors.grey)),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => setState(() {
+                          _isSignUpMode = true;
+                          _isAdminMode = false;
+                        }),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            border: Border(bottom: BorderSide(color: _isSignUpMode ? const Color(0xFF1B365D) : Colors.transparent, width: 2.5)),
+                          ),
+                          child: Text('회원가입', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, color: _isSignUpMode ? const Color(0xFF1B365D) : Colors.grey)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
                 TextField(
-                  controller: _employeeIdController,
-                  decoration: const InputDecoration(
-                    labelText: '사번 (Employee ID)',
-                    hintText: '사번을 입력하세요',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.badge_outlined),
-                  ),
+                  controller: _empIdController,
+                  decoration: const InputDecoration(labelText: '사번 (Employee ID)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.badge_outlined)),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 TextField(
                   controller: _nameController,
-                  decoration: const InputDecoration(
-                    labelText: '성명 (Name)',
-                    hintText: '이름을 입력하세요',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.person_outline),
-                  ),
+                  decoration: const InputDecoration(labelText: '성명 (Name)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.person_outline)),
                 ),
-                const SizedBox(height: 16),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('관리자 모드로 로그인', style: TextStyle(fontWeight: FontWeight.bold)),
-                  value: _isAdminMode,
-                  onChanged: (val) {
-                    setState(() {
-                      _isAdminMode = val;
-                      if (!val) _adminCodeController.clear();
-                    });
-                  },
+                const SizedBox(height: 14),
+                TextField(
+                  controller: _pwController,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: '비밀번호 (Password)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.lock_outline)),
                 ),
-                if (_isAdminMode) ...[
-                  const SizedBox(height: 8),
+                if (_isSignUpMode) ...[
+                  const SizedBox(height: 14),
                   TextField(
-                    controller: _adminCodeController,
+                    controller: _confirmPwController,
                     obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: '관리자 비밀코드',
-                      hintText: '비밀번호를 입력하세요',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.security),
-                    ),
+                    decoration: const InputDecoration(labelText: '비밀번호 확인', border: OutlineInputBorder(), prefixIcon: Icon(Icons.check_circle_outline)),
                   ),
                 ],
-                const SizedBox(height: 24),
+                if (!_isSignUpMode) ...[
+                  const SizedBox(height: 10),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('관리자 모드로 로그인', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    value: _isAdminMode,
+                    onChanged: (val) {
+                      setState(() {
+                        _isAdminMode = val;
+                        if (!val) _adminCodeController.clear();
+                      });
+                    },
+                  ),
+                  if (_isAdminMode) ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _adminCodeController,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: '관리자 마스터 코드', border: OutlineInputBorder(), prefixIcon: Icon(Icons.security)),
+                    ),
+                  ],
+                ],
+                const SizedBox(height: 22),
                 ElevatedButton(
-                  onPressed: _login,
+                  onPressed: _submitAuth,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF1B365D),
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
-                  child: const Text('로그인', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  child: Text(_isSignUpMode ? '신규 계정 회원가입 완료' : '로그인', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
@@ -327,7 +432,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 3. 메인 스케줄 화면
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
