@@ -90,7 +90,7 @@ class WorkScheduleApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1B365D)),
         useMaterial3: true,
       ),
-      home: initialHome,
+      home: const LoginScreen(),
     );
   }
 }
