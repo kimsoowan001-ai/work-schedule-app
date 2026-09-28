@@ -49,7 +49,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// 데이터 저장 헬퍼 함수
+// 로컬 스토리지 데이터 저장 함수
 void saveAllData() {
   try {
     html.window.localStorage['ktng_users_data'] = jsonEncode(globalUsers);
@@ -148,7 +148,7 @@ class _LoginScreenState extends State<LoginScreen> {
       globalUsers[empId] = {'name': name, 'password': pw};
       saveAllData();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('회원가입이 완료되었습니다! 로그인해주세요.'), backgroundColor: Colors.green),
+        const SnackBar(content: Text('회원가입 완료! 로그인해주세요.'), backgroundColor: Colors.green),
       );
       setState(() {
         _isSignUpMode = false;
@@ -401,7 +401,7 @@ class MainScheduleScreen extends StatefulWidget {
 class _MainScheduleScreenState extends State<MainScheduleScreen> {
   DateTime _focusedDate = DateTime.now();
 
-  // 근무 유형 목록 (요청 반영: '종일' 제거)
+  // 근무 유형 목록 ('종일' 제외됨)
   final List<String> _shiftTypes = [
     '주간 (08:30 - 17:30)',
     '오전 (06:30 - 14:30)',
@@ -409,7 +409,125 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     '야간 (22:30 - 06:30)',
   ];
 
-  // 관리자 전용 게시글 등록 다이얼로그 (요청 반영: 기능 복구)
+  // 1. 관리자 전용 회원 목록 조회 및 비밀번호 수정 다이얼로그
+  void _showUserManagerDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.manage_accounts, color: Color(0xFF1B365D)),
+              SizedBox(width: 8),
+              Text('사원 계정 관리 및 정보 수정', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            ],
+          ),
+          content: SizedBox(
+            width: 480,
+            child: globalUsers.isEmpty
+                ? const Center(child: Text('가입된 사원이 없습니다.'))
+                : ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: globalUsers.length,
+                    separatorBuilder: (_, __) => const Divider(),
+                    itemBuilder: (context, index) {
+                      final empId = globalUsers.keys.elementAt(index);
+                      final userData = globalUsers[empId]!;
+                      return ListTile(
+                        leading: const CircleAvatar(
+                          backgroundColor: Color(0xFF1B365D),
+                          child: Icon(Icons.person, color: Colors.white, size: 20),
+                        ),
+                        title: Text('${userData['name']} (사번: $empId)', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text('현재 비밀번호: ${userData['password']}'),
+                        trailing: ElevatedButton.icon(
+                          icon: const Icon(Icons.edit, size: 14),
+                          label: const Text('수정'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blueGrey.shade700,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          ),
+                          onPressed: () {
+                            _showEditUserDialog(empId, userData['name'] ?? '', userData['password'] ?? '', () {
+                              setDialogState(() {});
+                              setState(() {});
+                            });
+                          },
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('닫기'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 2. 사원 정보(성명 및 비밀번호) 직접 수정 다이얼로그
+  void _showEditUserDialog(String empId, String currentName, String currentPw, VoidCallback onUpdated) {
+    final nameEditCtrl = TextEditingController(text: currentName);
+    final pwEditCtrl = TextEditingController(text: currentPw);
+
+    showDialog(
+      context: context,
+      builder: (editCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: Text('사원 정보 수정 ($empId)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameEditCtrl,
+              decoration: const InputDecoration(labelText: '성명', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: pwEditCtrl,
+              decoration: const InputDecoration(
+                labelText: '새 비밀번호 (분실 시 초기화)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.lock_reset),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(editCtx), child: const Text('취소')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1B365D), foregroundColor: Colors.white),
+            onPressed: () {
+              final newName = nameEditCtrl.text.trim();
+              final newPw = pwEditCtrl.text.trim();
+              if (newName.isEmpty || newPw.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('성명과 비밀번호를 모두 입력하세요.'), backgroundColor: Colors.redAccent),
+                );
+                return;
+              }
+              globalUsers[empId] = {'name': newName, 'password': newPw};
+              saveAllData();
+              onUpdated();
+              Navigator.pop(editCtx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('$empId 사원의 정보가 성공적으로 변경되었습니다.'), backgroundColor: Colors.green),
+              );
+            },
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 3. 관리자 전용 게시글 등록 다이얼로그
   void _showCreatePostDialog() {
     final titleCtrl = TextEditingController();
     final contentCtrl = TextEditingController();
@@ -484,7 +602,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 근태 기록 등록 다이얼로그 (종일 제외된 4개 선택지)
+  // 4. 근태 기록 등록 다이얼로그
   void _showAddShiftDialog(DateTime date) {
     String selectedShift = _shiftTypes[0];
     final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
@@ -545,11 +663,18 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.isAdmin ? 'KT&G 근무관리 [관리자 모드]' : 'KT&G 근무관리 (${widget.userName} 님)',
+          widget.isAdmin ? 'KT&G 근무관리 [관리자]' : 'KT&G 근무관리 (${widget.userName} 님)',
           style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
         ),
         backgroundColor: const Color(0xFF1B365D),
         actions: [
+          // 관리자 전용 사원 계정 관리 및 비밀번호 수정 버튼
+          if (widget.isAdmin)
+            IconButton(
+              icon: const Icon(Icons.people_alt, color: Colors.white),
+              tooltip: '사원 계정 및 비밀번호 관리',
+              onPressed: _showUserManagerDialog,
+            ),
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white),
             tooltip: '로그아웃',
@@ -561,7 +686,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           ),
         ],
       ),
-      // 관리자 모드일 때만 게시글 등록 플로팅 액션 버튼 노출 (복구 완료)
       floatingActionButton: widget.isAdmin
           ? FloatingActionButton.extended(
               backgroundColor: const Color(0xFF1B365D),
@@ -575,7 +699,25 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 상단 공지사항 및 게시글 영역
+            // 관리자 전용 사원 관리 바로가기 배너
+            if (widget.isAdmin)
+              Card(
+                color: const Color(0xFF1B365D).withOpacity(0.08),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: ListTile(
+                  leading: const Icon(Icons.admin_panel_settings, color: Color(0xFF1B365D), size: 32),
+                  title: const Text('사원 계정 관리 및 비밀번호 변경', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text('현재 가입된 사원: 총 ${globalUsers.length}명 (비밀번호 분실 시 재설정 가능)'),
+                  trailing: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1B365D), foregroundColor: Colors.white),
+                    onPressed: _showUserManagerDialog,
+                    child: const Text('관리 열기'),
+                  ),
+                ),
+              ),
+            if (widget.isAdmin) const SizedBox(height: 14),
+
+            // 상단 공지사항 및 게시판 영역
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -637,7 +779,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             ),
             const SizedBox(height: 12),
 
-            // 간이 일정 뷰어 카드
+            // 7일간 근무 뷰어
             Card(
               elevation: 2,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
