@@ -959,84 +959,217 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  void _openCreatePostDialog() {
-    final titleCtrl = TextEditingController();
-    final contentCtrl = TextEditingController();
-
+  // 게시글 삭제 확인 다이얼로그 (메인/게시판 공통)
+  void _confirmDeletePost(int index) {
+    final post = _posts[index];
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.campaign, color: Color(0xFF1B365D)),
-            SizedBox(width: 8),
-            Text('게시글 및 사내 공지 등록',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          ],
-        ),
-        content: SizedBox(
-          width: 440,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleCtrl,
-                decoration: const InputDecoration(
-                    labelText: '제목', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: contentCtrl,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                    labelText: '내용을 작성하세요', border: OutlineInputBorder()),
-              ),
-            ],
-          ),
-        ),
+        title: const Text('게시글 삭제 확인'),
+        content: Text('\'${post['title']}\' 게시글을 정말로 삭제하시겠습니까?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('취소'),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1B365D),
+              backgroundColor: Colors.redAccent,
               foregroundColor: Colors.white,
             ),
             onPressed: () {
-              final t = titleCtrl.text.trim();
-              final c = contentCtrl.text.trim();
-              if (t.isEmpty || c.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text('제목과 내용을 모두 입력해주세요.'),
-                      backgroundColor: Colors.redAccent),
-                );
-                return;
-              }
-              final newPost = {
-                'id': DateTime.now().millisecondsSinceEpoch.toString(),
-                'title': t,
-                'content': c,
-                'author': widget.userName,
-                'date':
-                    '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}',
-              };
               setState(() {
-                _posts.insert(0, newPost);
+                _posts.removeAt(index);
               });
               _saveBoardToFirebase();
-              _sendWebNotification("📢 [새 게시글 등록]", t);
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                    content: Text('게시글이 성공적으로 등록되었습니다.'),
-                    backgroundColor: Colors.green),
+                  content: Text('게시글이 성공적으로 삭제되었습니다.'),
+                  backgroundColor: Colors.redAccent,
+                ),
               );
             },
-            child: const Text('등록'),
+            child: const Text('삭제'),
           ),
         ],
+      ),
+    );
+  }
+
+  // 근무표 사진 첨부 지원 게시글 작성 모달
+  void _openCreatePostDialog() {
+    final titleCtrl = TextEditingController();
+    final contentCtrl = TextEditingController();
+    String? selectedBase64Image;
+    String? selectedImageName;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.campaign, color: Color(0xFF1B365D)),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text('게시글 및 근무표 등록',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                    overflow: TextOverflow.ellipsis),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 440,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: titleCtrl,
+                    decoration: const InputDecoration(
+                        labelText: '제목 (예: 10월 근무표 공지)', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: contentCtrl,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                        labelText: '내용 / 안내사항', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 14),
+
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      side: BorderSide(
+                          color: selectedBase64Image != null
+                              ? Colors.green
+                              : const Color(0xFF1B365D)),
+                    ),
+                    icon: Icon(
+                      selectedBase64Image != null
+                          ? Icons.check_circle
+                          : Icons.add_photo_alternate,
+                      color: selectedBase64Image != null
+                          ? Colors.green
+                          : const Color(0xFF1B365D),
+                    ),
+                    label: Text(
+                      selectedBase64Image != null
+                          ? '사진 첨부 완료 (${selectedImageName ?? "근무표"})'
+                          : '📷 근무표 사진 첨부하기',
+                      style: TextStyle(
+                          color: selectedBase64Image != null
+                              ? Colors.green.shade800
+                              : const Color(0xFF1B365D),
+                          fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onPressed: () {
+                      final uploadInput = html.FileUploadInputElement();
+                      uploadInput.accept = 'image/*';
+                      uploadInput.click();
+
+                      uploadInput.onChange.listen((e) {
+                        final files = uploadInput.files;
+                        if (files != null && files.isNotEmpty) {
+                          final file = files[0];
+                          final reader = html.FileReader();
+                          reader.readAsDataUrl(file);
+                          reader.onLoadEnd.listen((e) {
+                            setDialogState(() {
+                              selectedBase64Image = reader.result as String?;
+                              selectedImageName = file.name;
+                            });
+                          });
+                        }
+                      });
+                    },
+                  ),
+                  if (selectedBase64Image != null) ...[
+                    const SizedBox(height: 10),
+                    Stack(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            selectedBase64Image!,
+                            height: 140,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        Positioned(
+                          top: 4,
+                          right: 4,
+                          child: InkWell(
+                            onTap: () {
+                              setDialogState(() {
+                                selectedBase64Image = null;
+                                selectedImageName = null;
+                              });
+                            },
+                            child: const CircleAvatar(
+                              radius: 12,
+                              backgroundColor: Colors.black54,
+                              child: Icon(Icons.close, size: 16, color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1B365D),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                final t = titleCtrl.text.trim();
+                final c = contentCtrl.text.trim();
+                if (t.isEmpty && selectedBase64Image == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('제목 또는 근무표 사진을 등록해주세요.'),
+                        backgroundColor: Colors.redAccent),
+                  );
+                  return;
+                }
+                final newPost = {
+                  'id': DateTime.now().millisecondsSinceEpoch.toString(),
+                  'title': t.isNotEmpty ? t : '근무표 공지',
+                  'content': c,
+                  'author': widget.userName,
+                  'image': selectedBase64Image ?? '',
+                  'date':
+                      '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}',
+                };
+                setState(() {
+                  _posts.insert(0, newPost);
+                });
+                _saveBoardToFirebase();
+                _sendWebNotification("📢 [새 게시글/근무표 등록]", t.isNotEmpty ? t : '새 근무표가 등록되었습니다.');
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('근무표/게시글이 성공적으로 등록되었습니다.'),
+                      backgroundColor: Colors.green),
+                );
+              },
+              child: const Text('등록 완료'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1651,6 +1784,41 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
+  void _showImageZoomDialog(String base64Img, String title) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AppBar(
+              title: Text(title, overflow: TextOverflow.ellipsis),
+              backgroundColor: const Color(0xFF1B365D),
+              foregroundColor: Colors.white,
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(ctx),
+                )
+              ],
+            ),
+            InteractiveViewer(
+              panEnabled: true,
+              minScale: 0.8,
+              maxScale: 4.0,
+              child: Image.network(
+                base64Img,
+                fit: BoxFit.contain,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final selectedKey =
@@ -1822,8 +1990,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           ? FloatingActionButton.extended(
               backgroundColor: Colors.indigo,
               foregroundColor: Colors.white,
-              icon: const Icon(Icons.add_comment),
-              label: const Text('게시글 등록'),
+              icon: const Icon(Icons.add_photo_alternate),
+              label: const Text('근무표/글 등록'),
               onPressed: _openCreatePostDialog,
             )
           : null,
@@ -1940,8 +2108,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 4),
                             visualDensity: VisualDensity.compact,
                           ),
-                          icon: const Icon(Icons.edit_note, color: Colors.indigo, size: 16),
-                          label: const Text('글쓰기', style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 12), overflow: TextOverflow.ellipsis),
+                          icon: const Icon(Icons.add_photo_alternate, color: Colors.indigo, size: 16),
+                          label: const Text('근무표등록', style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold, fontSize: 12), overflow: TextOverflow.ellipsis),
                           onPressed: _openCreatePostDialog,
                         ),
                       ),
@@ -1997,6 +2165,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             ),
             const SizedBox(height: 8),
 
+            // 메인 화면 고정 사내 게시판 (관리자 삭제 버튼 및 사진 썸네일 지원)
             Card(
               elevation: 1,
               child: Padding(
@@ -2009,7 +2178,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         const Icon(Icons.dynamic_feed, size: 18, color: Color(0xFF1B365D)),
                         const SizedBox(width: 6),
                         const Expanded(
-                          child: Text('📋 사내 게시판',
+                          child: Text('📋 사내 게시판 & 근무표',
                               style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                               overflow: TextOverflow.ellipsis),
                         ),
@@ -2017,13 +2186,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                           TextButton.icon(
                             style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
                             icon: const Icon(Icons.add, size: 16),
-                            label: const Text('글쓰기', style: TextStyle(fontSize: 12)),
+                            label: const Text('등록', style: TextStyle(fontSize: 12)),
                             onPressed: _openCreatePostDialog,
                           ),
                         TextButton(
                           style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
                           onPressed: _openBulletinScreen,
-                          child: const Text('게시판 >', style: TextStyle(fontSize: 12)),
+                          child: const Text('전체보기 >', style: TextStyle(fontSize: 12)),
                         ),
                       ],
                     ),
@@ -2034,16 +2203,62 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         child: Text('등록된 게시글이 없습니다.', style: TextStyle(color: Colors.grey)),
                       )
                     else
-                      ..._posts.take(3).map((post) => ListTile(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            title: Text('• ${post['title']}',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                overflow: TextOverflow.ellipsis),
-                            subtitle: Text('${post['author']} | ${post['date']} - ${post['content']}',
-                                maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
-                            onTap: _openBulletinScreen,
-                          )),
+                      ...List.generate(_posts.take(3).length, (idx) {
+                        final post = _posts[idx];
+                        final hasImg = post['image'] != null && (post['image'] as String).isNotEmpty;
+                        return ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: hasImg
+                              ? InkWell(
+                                  onTap: () => _showImageZoomDialog(
+                                      post['image'], post['title'] ?? '근무표'),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(6),
+                                    child: Image.network(
+                                      post['image'],
+                                      width: 44,
+                                      height: 44,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                )
+                              : null,
+                          title: Row(
+                            children: [
+                              if (hasImg)
+                                const Padding(
+                                  padding: EdgeInsets.only(right: 4.0),
+                                  child: Icon(Icons.image, size: 14, color: Colors.blueAccent),
+                                ),
+                              Expanded(
+                                child: Text('• ${post['title']}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                            ],
+                          ),
+                          subtitle: Text(
+                              '${post['author']} | ${post['date']} ${post['content'].isNotEmpty ? "- " + post['content'] : ""}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12)),
+                          trailing: widget.isAdmin
+                              ? IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                                  tooltip: '게시글 삭제',
+                                  onPressed: () => _confirmDeletePost(idx),
+                                )
+                              : null,
+                          onTap: () {
+                            if (hasImg) {
+                              _showImageZoomDialog(post['image'], post['title'] ?? '근무표');
+                            } else {
+                              _openBulletinScreen();
+                            }
+                          },
+                        );
+                      }),
                   ],
                 ),
               ),
@@ -2809,6 +3024,7 @@ class MonthlyVacationListScreen extends StatelessWidget {
   }
 }
 
+// 7. 게시판 & 근무표 (사진 첨부, 확대 보기, 안전 삭제 기능 포함)
 class BulletinBoardScreen extends StatefulWidget {
   final bool isAdmin;
   final String userName;
@@ -2829,83 +3045,246 @@ class BulletinBoardScreen extends StatefulWidget {
 }
 
 class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
-  void _openCreatePostDialog() {
-    final titleCtrl = TextEditingController();
-    final contentCtrl = TextEditingController();
-
+  // 게시글 삭제 확인 다이얼로그
+  void _confirmDelete(int idx) {
+    final post = widget.posts[idx];
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.campaign, color: Color(0xFF1B365D)),
-            SizedBox(width: 8),
-            Text('게시글 등록',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          ],
-        ),
-        content: SizedBox(
-          width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleCtrl,
-                decoration: const InputDecoration(
-                    labelText: '제목', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: contentCtrl,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                    labelText: '내용을 작성하세요', border: OutlineInputBorder()),
-              ),
-            ],
-          ),
-        ),
+        title: const Text('게시글 삭제 확인'),
+        content: Text('\'${post['title']}\' 게시글을 정말로 삭제하시겠습니까?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('취소'),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1B365D),
+              backgroundColor: Colors.redAccent,
               foregroundColor: Colors.white,
             ),
             onPressed: () {
-              final t = titleCtrl.text.trim();
-              final c = contentCtrl.text.trim();
-              if (t.isEmpty || c.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text('제목과 내용을 모두 입력해주세요.'),
-                      backgroundColor: Colors.redAccent),
-                );
-                return;
-              }
-              final newPost = {
-                'id': DateTime.now().millisecondsSinceEpoch.toString(),
-                'title': t,
-                'content': c,
-                'author': widget.userName,
-                'date':
-                    '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}',
-              };
               final updated = List<Map<String, dynamic>>.from(widget.posts)
-                ..insert(0, newPost);
+                ..removeAt(idx);
               widget.onPostsUpdated(updated);
-              widget.sendNotification("📢 [새 게시글 등록]", t);
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                    content: Text('게시글이 성공적으로 등록되었습니다.'),
-                    backgroundColor: Colors.green),
+                  content: Text('게시글이 삭제되었습니다.'),
+                  backgroundColor: Colors.redAccent,
+                ),
               );
             },
-            child: const Text('등록 완료'),
+            child: const Text('삭제'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _openCreatePostDialog() {
+    final titleCtrl = TextEditingController();
+    final contentCtrl = TextEditingController();
+    String? selectedBase64Image;
+    String? selectedImageName;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.campaign, color: Color(0xFF1B365D)),
+              SizedBox(width: 8),
+              Text('게시글 및 근무표 등록',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+            ],
+          ),
+          content: SizedBox(
+            width: 440,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: titleCtrl,
+                    decoration: const InputDecoration(
+                        labelText: '제목 (예: 10월 근무표 공지)', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: contentCtrl,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                        labelText: '내용 / 안내사항', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 14),
+
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      side: BorderSide(
+                          color: selectedBase64Image != null
+                              ? Colors.green
+                              : const Color(0xFF1B365D)),
+                    ),
+                    icon: Icon(
+                      selectedBase64Image != null
+                          ? Icons.check_circle
+                          : Icons.add_photo_alternate,
+                      color: selectedBase64Image != null
+                          ? Colors.green
+                          : const Color(0xFF1B365D),
+                    ),
+                    label: Text(
+                      selectedBase64Image != null
+                          ? '사진 첨부 완료 (${selectedImageName ?? "근무표"})'
+                          : '📷 근무표 사진 첨부하기',
+                      style: TextStyle(
+                          color: selectedBase64Image != null
+                              ? Colors.green.shade800
+                              : const Color(0xFF1B365D),
+                          fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onPressed: () {
+                      final uploadInput = html.FileUploadInputElement();
+                      uploadInput.accept = 'image/*';
+                      uploadInput.click();
+
+                      uploadInput.onChange.listen((e) {
+                        final files = uploadInput.files;
+                        if (files != null && files.isNotEmpty) {
+                          final file = files[0];
+                          final reader = html.FileReader();
+                          reader.readAsDataUrl(file);
+                          reader.onLoadEnd.listen((e) {
+                            setDialogState(() {
+                              selectedBase64Image = reader.result as String?;
+                              selectedImageName = file.name;
+                            });
+                          });
+                        }
+                      });
+                    },
+                  ),
+                  if (selectedBase64Image != null) ...[
+                    const SizedBox(height: 10),
+                    Stack(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            selectedBase64Image!,
+                            height: 140,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        Positioned(
+                          top: 4,
+                          right: 4,
+                          child: InkWell(
+                            onTap: () {
+                              setDialogState(() {
+                                selectedBase64Image = null;
+                                selectedImageName = null;
+                              });
+                            },
+                            child: const CircleAvatar(
+                              radius: 12,
+                              backgroundColor: Colors.black54,
+                              child: Icon(Icons.close, size: 16, color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1B365D),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                final t = titleCtrl.text.trim();
+                final c = contentCtrl.text.trim();
+                if (t.isEmpty && selectedBase64Image == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('제목 또는 근무표 사진을 등록해주세요.'),
+                        backgroundColor: Colors.redAccent),
+                  );
+                  return;
+                }
+                final newPost = {
+                  'id': DateTime.now().millisecondsSinceEpoch.toString(),
+                  'title': t.isNotEmpty ? t : '근무표 공지',
+                  'content': c,
+                  'author': widget.userName,
+                  'image': selectedBase64Image ?? '',
+                  'date':
+                      '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}',
+                };
+                final updated = List<Map<String, dynamic>>.from(widget.posts)
+                  ..insert(0, newPost);
+                widget.onPostsUpdated(updated);
+                widget.sendNotification("📢 [새 게시글/근무표 등록]", t.isNotEmpty ? t : '새 근무표가 등록되었습니다.');
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('근무표/게시글이 성공적으로 등록되었습니다.'),
+                      backgroundColor: Colors.green),
+                );
+              },
+              child: const Text('등록 완료'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showZoomDialog(String base64Img, String title) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AppBar(
+              title: Text(title, overflow: TextOverflow.ellipsis),
+              backgroundColor: const Color(0xFF1B365D),
+              foregroundColor: Colors.white,
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(ctx),
+                )
+              ],
+            ),
+            InteractiveViewer(
+              panEnabled: true,
+              minScale: 0.8,
+              maxScale: 4.0,
+              child: Image.network(
+                base64Img,
+                fit: BoxFit.contain,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2914,15 +3293,15 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-          title: const Text('📋 사내 게시판 & 공지사항'),
+          title: const Text('📋 사내 게시판 & 근무표'),
           backgroundColor: const Color(0xFF1B365D),
           foregroundColor: Colors.white),
       floatingActionButton: widget.isAdmin
           ? FloatingActionButton.extended(
               backgroundColor: const Color(0xFF1B365D),
               foregroundColor: Colors.white,
-              icon: const Icon(Icons.edit),
-              label: const Text('새 글 작성'),
+              icon: const Icon(Icons.add_photo_alternate),
+              label: const Text('근무표/글 작성'),
               onPressed: _openCreatePostDialog,
             )
           : null,
@@ -2933,28 +3312,75 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
               itemCount: widget.posts.length,
               itemBuilder: (ctx, idx) {
                 final post = widget.posts[idx];
+                final hasImg = post['image'] != null && (post['image'] as String).isNotEmpty;
+
                 return Card(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  child: ListTile(
-                    title: Text(post['title'] ?? '',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                        overflow: TextOverflow.ellipsis),
-                    subtitle: Text(
-                        '${post['author']} | ${post['date']}\n${post['content']}',
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 3),
-                    isThreeLine: true,
-                    trailing: widget.isAdmin
-                        ? IconButton(
-                            icon: const Icon(Icons.delete, color: Colors.redAccent),
-                            onPressed: () {
-                              final updated =
-                                  List<Map<String, dynamic>>.from(widget.posts)
-                                    ..removeAt(idx);
-                              widget.onPostsUpdated(updated);
-                            },
-                          )
-                        : null,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(post['title'] ?? '',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                  overflow: TextOverflow.ellipsis),
+                            ),
+                            if (widget.isAdmin)
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 22),
+                                tooltip: '게시글 삭제',
+                                onPressed: () => _confirmDelete(idx),
+                              ),
+                          ],
+                        ),
+                        Text('${post['author']} | ${post['date']}',
+                            style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                        if ((post['content'] ?? '').isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(post['content'] ?? '', style: const TextStyle(fontSize: 14)),
+                        ],
+                        if (hasImg) ...[
+                          const SizedBox(height: 10),
+                          InkWell(
+                            onTap: () => _showZoomDialog(post['image'], post['title'] ?? '근무표'),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Stack(
+                                alignment: Alignment.bottomRight,
+                                children: [
+                                  Image.network(
+                                    post['image'],
+                                    fit: BoxFit.contain,
+                                    width: double.infinity,
+                                    errorBuilder: (ctx, err, stack) => const Text('이미지를 불러올 수 없습니다.'),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    margin: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black54,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                                        SizedBox(width: 4),
+                                        Text('터치하여 확대', style: TextStyle(color: Colors.white, fontSize: 11)),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                 );
               },
