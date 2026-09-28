@@ -1164,7 +1164,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                                     },
                                     child: const CircleAvatar(
                                       radius: 10,
-                                      backgroundColor: Colors.black70,
+                                      backgroundColor: Colors.black87,
                                       child: Icon(Icons.close, size: 14, color: Colors.white),
                                     ),
                                   ),
@@ -3042,17 +3042,14 @@ class _AttendanceManagementScreenState
   void _confirmDeleteAttendance(Map<String, dynamic> record) {
     if (!widget.isAdmin) return;
 
-    final recordId = (record['id'] ?? '').toString();
-    final employeeName = (record['name'] ?? '').toString();
-    final employeeId = (record['empId'] ?? '').toString();
-    final workDate = (record['date'] ?? '').toString();
-
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('근태기록 삭제 확인'),
+        title: const Text('근태 기록 삭제'),
         content: Text(
-          '$employeeName ($employeeId)\n$workDate 근태기록을 삭제하시겠습니까?\n\n삭제 후에는 복구할 수 없습니다.',
+          '${record['name'] ?? ''} (${record['empId'] ?? ''})\n'
+          '${record['date'] ?? ''} 근태 기록을 삭제하시겠습니까?\n\n'
+          '삭제 후에는 복구할 수 없습니다.',
         ),
         actions: [
           TextButton(
@@ -3064,31 +3061,28 @@ class _AttendanceManagementScreenState
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
             ),
-            onPressed: () async {
+            onPressed: () {
+              final recordId = record['id']?.toString();
               setState(() {
-                if (recordId.isNotEmpty) {
+                if (recordId != null && recordId.isNotEmpty) {
                   globalAttendanceRecords.removeWhere(
-                    (item) => (item['id'] ?? '').toString() == recordId,
+                    (item) => item['id']?.toString() == recordId,
                   );
                 } else {
-                  // 이전 버전에서 id 없이 저장된 기록도 관리자 삭제 가능
                   globalAttendanceRecords.remove(record);
                 }
               });
-
-              await saveAllData();
+              saveAllData();
               widget.onUpdated();
-
-              if (!mounted) return;
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('근태기록이 삭제되었습니다.'),
+                  content: Text('근태 기록이 삭제되었습니다.'),
                   backgroundColor: Colors.redAccent,
                 ),
               );
             },
-            icon: const Icon(Icons.delete_forever),
+            icon: const Icon(Icons.delete_outline),
             label: const Text('삭제'),
           ),
         ],
@@ -3165,9 +3159,11 @@ class _AttendanceManagementScreenState
                         overflow: TextOverflow.ellipsis),
                     trailing: widget.isAdmin
                         ? IconButton(
-                            tooltip: '근태기록 삭제',
-                            icon: const Icon(Icons.delete_outline,
-                                color: Colors.redAccent),
+                            tooltip: '근태 기록 삭제',
+                            icon: const Icon(
+                              Icons.delete_outline,
+                              color: Colors.redAccent,
+                            ),
                             onPressed: () => _confirmDeleteAttendance(r),
                           )
                         : null,
