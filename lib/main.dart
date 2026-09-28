@@ -1,16 +1,18 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'dart:html' as html;
 
 // Firebase 클라우드 DB 연동 설정
 const String firestoreProjectId = "ktng-schedule";
 const String firestoreApiKey = "AIzaSyCqq2-pNm6e4z4nq0ijX3ZI4bGsxY0w75Q";
-const String firestoreBaseUrl = "https://firestore.googleapis.com/v1/projects/$firestoreProjectId/databases/(default)/documents/app_data";
+const String firestoreBaseUrl =
+    "https://firestore.googleapis.com/v1/projects/$firestoreProjectId/databases/(default)/documents/app_data";
 
 // 전역 상태 데이터
 Map<String, List<Map<String, String>>> globalScheduleMap = {};
 List<Map<String, String>> globalApprovalRequests = [];
 List<Map<String, dynamic>> globalAttendanceRecords = [];
+Map<String, Map<String, String>> globalUsers = {}; // {empId: {'name': name, 'password': pw}}
 
 // Firebase 서버에 데이터 즉시 동기화 전송 (전역 함수)
 Future<void> saveAllData() async {
@@ -18,10 +20,12 @@ Future<void> saveAllData() async {
     final schedJson = jsonEncode(globalScheduleMap);
     final appJson = jsonEncode(globalApprovalRequests);
     final attJson = jsonEncode(globalAttendanceRecords);
+    final usersJson = jsonEncode(globalUsers);
 
     html.window.localStorage['ktng_schedule_data'] = schedJson;
     html.window.localStorage['ktng_approval_data'] = appJson;
     html.window.localStorage['ktng_attendance_data'] = attJson;
+    html.window.localStorage['ktng_users_data'] = usersJson;
 
     await html.HttpRequest.request(
       '$firestoreBaseUrl/schedules?key=$firestoreApiKey',
@@ -55,6 +59,17 @@ Future<void> saveAllData() async {
         }
       }),
     );
+
+    await html.HttpRequest.request(
+      '$firestoreBaseUrl/users?key=$firestoreApiKey',
+      method: 'PATCH',
+      requestHeaders: {'Content-Type': 'application/json'},
+      sendData: jsonEncode({
+        'fields': {
+          'data': {'stringValue': usersJson}
+        }
+      }),
+    );
   } catch (e) {
     debugPrint("서버 저장 오류: $e");
   }
@@ -75,13 +90,14 @@ class WorkScheduleApp extends StatelessWidget {
     final savedName = html.window.localStorage['last_name'] ?? '';
     final savedAdmin = html.window.localStorage['is_admin'] == 'true';
 
-    final Widget initialHome = (isLoggedIn && savedEmpId.isNotEmpty && savedName.isNotEmpty)
-        ? MainScheduleScreen(
-            employeeId: savedEmpId,
-            userName: savedName,
-            isAdmin: savedAdmin,
-          )
-        : const SplashScreen();
+    final Widget initialHome =
+        (isLoggedIn && savedEmpId.isNotEmpty && savedName.isNotEmpty)
+            ? MainScheduleScreen(
+                employeeId: savedEmpId,
+                userName: savedName,
+                isAdmin: savedAdmin,
+              )
+            : const SplashScreen();
 
     return MaterialApp(
       title: 'KT&G 근무 스케줄 관리',
@@ -90,7 +106,7 @@ class WorkScheduleApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1B365D)),
         useMaterial3: true,
       ),
-      home: const LoginScreen(),
+      home: initialHome,
     );
   }
 }
@@ -129,19 +145,27 @@ class _SplashScreenState extends State<SplashScreen> {
               width: 200,
               errorBuilder: (context, error, stackTrace) => const Text(
                 'KT&G',
-                style: TextStyle(fontSize: 44, fontWeight: FontWeight.w900, color: Color(0xFF333333)),
+                style: TextStyle(
+                    fontSize: 44,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF333333)),
               ),
             ),
             const SizedBox(height: 24),
             const Text(
               '근무 스케줄 관리 시스템',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B365D), letterSpacing: 1.2),
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1B365D),
+                  letterSpacing: 1.2),
             ),
             const SizedBox(height: 32),
             const SizedBox(
               width: 30,
               height: 30,
-              child: CircularProgressIndicator(strokeWidth: 3, color: Color(0xFFE35205)),
+              child: CircularProgressIndicator(
+                  strokeWidth: 3, color: Color(0xFFE35205)),
             ),
           ],
         ),
@@ -150,7 +174,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
-// 2. 로그인 화면
+// 2. 보안 로그인 & 회원가입 화면
 // 2. 보안 로그인 & 회원가입 화면
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -432,6 +456,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
+// 3. 메인 스케줄 화면
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -449,7 +474,8 @@ class MainScheduleScreen extends StatefulWidget {
 }
 
 class _MainScheduleScreenState extends State<MainScheduleScreen> {
-  String _notice = "📢 [공지] 이번 주 포함 총 3주간(다다음 주 일요일까지)은 통으로 잠금 처리되어 관리자 승인이 필요하며, 4주차 월요일부터는 자유롭게 신청/삭제 가능합니다.";
+  String _notice =
+      "📢 [공지] 이번 주 포함 총 3주간(다다음 주 일요일까지)은 통으로 잠금 처리되어 관리자 승인이 필요하며, 4주차 월요일부터는 자유롭게 신청/삭제 가능합니다.";
   bool _notificationGranted = false;
   bool _isSyncing = false;
 
@@ -474,14 +500,18 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       final savedPosts = html.window.localStorage['ktng_bulletin_posts'];
       if (savedPosts != null && savedPosts.isNotEmpty) {
         final decodedPosts = jsonDecode(savedPosts) as List;
-        _posts = decodedPosts.map((p) => Map<String, dynamic>.from(p as Map)).toList();
+        _posts = decodedPosts
+            .map((p) => Map<String, dynamic>.from(p as Map))
+            .toList();
       }
 
       final savedData = html.window.localStorage['ktng_schedule_data'];
       if (savedData != null && savedData.isNotEmpty) {
         final decoded = jsonDecode(savedData) as Map<String, dynamic>;
         globalScheduleMap = decoded.map((key, value) {
-          final list = (value as List).map((item) => Map<String, String>.from(item as Map)).toList();
+          final list = (value as List)
+              .map((item) => Map<String, String>.from(item as Map))
+              .toList();
           return MapEntry(key, list);
         });
       }
@@ -489,13 +519,24 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
       final savedApproval = html.window.localStorage['ktng_approval_data'];
       if (savedApproval != null && savedApproval.isNotEmpty) {
         final decodedApp = jsonDecode(savedApproval) as List;
-        globalApprovalRequests = decodedApp.map((item) => Map<String, String>.from(item as Map)).toList();
+        globalApprovalRequests = decodedApp
+            .map((item) => Map<String, String>.from(item as Map))
+            .toList();
       }
 
       final savedAtt = html.window.localStorage['ktng_attendance_data'];
       if (savedAtt != null && savedAtt.isNotEmpty) {
         final decodedAtt = jsonDecode(savedAtt) as List;
-        globalAttendanceRecords = decodedAtt.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+        globalAttendanceRecords = decodedAtt
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+      }
+
+      final savedUsers = html.window.localStorage['ktng_users_data'];
+      if (savedUsers != null && savedUsers.isNotEmpty) {
+        final decodedUsers = jsonDecode(savedUsers) as Map<String, dynamic>;
+        globalUsers = decodedUsers
+            .map((k, v) => MapEntry(k, Map<String, String>.from(v as Map)));
       }
 
       setState(() {});
@@ -505,6 +546,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   Future<void> _syncFromFirebase() async {
     setState(() => _isSyncing = true);
     try {
+      // 1) 스케줄
       try {
         final schedReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/schedules?key=$firestoreApiKey',
@@ -516,7 +558,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           if (jsonStr != null && jsonStr.isNotEmpty) {
             final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
             globalScheduleMap = decoded.map((k, v) {
-              final l = (v as List).map((e) => Map<String, String>.from(e as Map)).toList();
+              final l = (v as List)
+                  .map((e) => Map<String, String>.from(e as Map))
+                  .toList();
               return MapEntry(k, l);
             });
             html.window.localStorage['ktng_schedule_data'] = jsonStr;
@@ -524,6 +568,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         }
       } catch (_) {}
 
+      // 2) 결재
       try {
         final appReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/approvals?key=$firestoreApiKey',
@@ -534,12 +579,15 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           final jsonStr = body['fields']?['data']?['stringValue'];
           if (jsonStr != null && jsonStr.isNotEmpty) {
             final decoded = jsonDecode(jsonStr) as List;
-            globalApprovalRequests = decoded.map((e) => Map<String, String>.from(e as Map)).toList();
+            globalApprovalRequests = decoded
+                .map((e) => Map<String, String>.from(e as Map))
+                .toList();
             html.window.localStorage['ktng_approval_data'] = jsonStr;
           }
         }
       } catch (_) {}
 
+      // 3) 근태기록
       try {
         final attReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/attendance?key=$firestoreApiKey',
@@ -550,12 +598,33 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           final jsonStr = body['fields']?['data']?['stringValue'];
           if (jsonStr != null && jsonStr.isNotEmpty) {
             final decoded = jsonDecode(jsonStr) as List;
-            globalAttendanceRecords = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+            globalAttendanceRecords = decoded
+                .map((e) => Map<String, dynamic>.from(e as Map))
+                .toList();
             html.window.localStorage['ktng_attendance_data'] = jsonStr;
           }
         }
       } catch (_) {}
 
+      // 4) 사용자 계정
+      try {
+        final usersReq = await html.HttpRequest.request(
+          '$firestoreBaseUrl/users?key=$firestoreApiKey',
+          method: 'GET',
+        );
+        if (usersReq.status == 200 && usersReq.responseText != null) {
+          final body = jsonDecode(usersReq.responseText!);
+          final jsonStr = body['fields']?['data']?['stringValue'];
+          if (jsonStr != null && jsonStr.isNotEmpty) {
+            final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
+            globalUsers = decoded
+                .map((k, v) => MapEntry(k, Map<String, String>.from(v as Map)));
+            html.window.localStorage['ktng_users_data'] = jsonStr;
+          }
+        }
+      } catch (_) {}
+
+      // 5) 게시판
       try {
         final boardReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/board?key=$firestoreApiKey',
@@ -572,7 +641,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           }
           if (postsStr != null && postsStr.isNotEmpty) {
             final decoded = jsonDecode(postsStr) as List;
-            _posts = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+            _posts = decoded
+                .map((e) => Map<String, dynamic>.from(e as Map))
+                .toList();
             html.window.localStorage['ktng_bulletin_posts'] = postsStr;
           }
         }
@@ -644,10 +715,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final target = DateTime(targetDate.year, targetDate.month, targetDate.day);
-
     final thisWeekMonday = today.subtract(Duration(days: today.weekday - 1));
     final twoWeeksLaterSunday = thisWeekMonday.add(const Duration(days: 20));
-
     return !target.isBefore(today) && !target.isAfter(twoWeeksLaterSunday);
   }
 
@@ -669,23 +738,20 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           controller: controller,
           maxLines: 4,
           decoration: const InputDecoration(
-            hintText: '공지할 내용을 작성하세요.',
-            border: OutlineInputBorder(),
-          ),
+              hintText: '공지할 내용을 작성하세요.', border: OutlineInputBorder()),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
           ElevatedButton(
             onPressed: () {
               final newNotice = controller.text.trim();
               setState(() => _notice = newNotice);
               _saveBoardToFirebase();
               Navigator.pop(ctx);
-
               _sendWebNotification("📢 [KT&G 공지사항]", newNotice);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('공지사항이 중앙 서버에 저장되었습니다.')),
-              );
+                  const SnackBar(content: Text('공지사항이 중앙 서버에 저장되었습니다.')));
             },
             child: const Text('저장 및 알림 전송'),
           ),
@@ -703,9 +769,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           userName: widget.userName,
           posts: _posts,
           onPostsUpdated: (updatedPosts) {
-            setState(() {
-              _posts = updatedPosts;
-            });
+            setState(() => _posts = updatedPosts);
             _saveBoardToFirebase();
           },
           sendNotification: _sendWebNotification,
@@ -718,9 +782,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (ctx) => MonthlyVacationListScreen(
-          scheduleMap: globalScheduleMap,
-        ),
+        builder: (ctx) =>
+            MonthlyVacationListScreen(scheduleMap: globalScheduleMap),
       ),
     );
   }
@@ -755,40 +818,21 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  List<String> _generateTimeOptions() {
-    List<String> options = [];
-    for (int i = 0; i <= 16; i++) {
-      int hours = i ~/ 2;
-      int minutes = (i % 2) * 30;
-      if (hours == 0 && minutes == 0) {
-        options.add("0시간 (0분)");
-      } else if (minutes == 0) {
-        options.add("$hours시간");
-      } else if (hours == 0) {
-        options.add("$minutes분");
-      } else {
-        options.add("$hours시간 $minutes분");
-      }
-    }
-    return options;
-  }
-
-  void _handleDeleteItem(String dateKey, Map<String, String> item, bool isLockedThreeWeeks) {
+  void _handleDeleteItem(
+      String dateKey, Map<String, String> item, bool isLockedThreeWeeks) {
     if (widget.isAdmin) {
-      setState(() {
-        globalScheduleMap[dateKey]?.remove(item);
-      });
+      setState(() => globalScheduleMap[dateKey]?.remove(item));
       saveAllData();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('일정이 삭제되었습니다.')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('일정이 삭제되었습니다.')));
       return;
     }
 
     if (!isLockedThreeWeeks) {
-      setState(() {
-        globalScheduleMap[dateKey]?.remove(item);
-      });
+      setState(() => globalScheduleMap[dateKey]?.remove(item));
       saveAllData();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('3주 잠금기간 이후 일정이 즉시 삭제되었습니다.')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('3주 잠금기간 이후 일정이 즉시 삭제되었습니다.')));
     } else {
       final deleteReasonController = TextEditingController();
       showDialog(
@@ -799,30 +843,34 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('이번 주 포함 총 3주(다다음 주 일요일까지) 일정의 취소/삭제는 관리자 승인이 필요합니다.', style: TextStyle(fontSize: 13, color: Colors.deepOrange)),
+              const Text(
+                  '이번 주 포함 총 3주(다다음 주 일요일까지) 일정의 취소/삭제는 관리자 승인이 필요합니다.',
+                  style: TextStyle(fontSize: 13, color: Colors.deepOrange)),
               const SizedBox(height: 12),
-              Text('삭제 대상: ${item['content']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              Text('삭제 대상: ${item['content']}',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 14)),
               const SizedBox(height: 14),
               TextField(
                 controller: deleteReasonController,
                 decoration: const InputDecoration(
-                  labelText: '삭제/취소 사유 (필수)',
-                  hintText: '취소 사유를 입력해주세요',
-                  border: OutlineInputBorder(),
-                ),
+                    labelText: '삭제/취소 사유 (필수)', border: OutlineInputBorder()),
               ),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text('닫기')),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange, foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepOrange,
+                  foregroundColor: Colors.white),
               onPressed: () {
                 if (deleteReasonController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('삭제 사유를 입력해주세요.')));
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(const SnackBar(content: Text('삭제 사유를 입력해주세요.')));
                   return;
                 }
-
                 final req = {
                   'id': DateTime.now().millisecondsSinceEpoch.toString(),
                   'actionType': '삭제요청',
@@ -835,18 +883,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   'requestTime': DateTime.now().toString().substring(0, 16),
                   'status': '대기중',
                 };
-
-                setState(() {
-                  globalApprovalRequests.insert(0, req);
-                });
+                setState(() => globalApprovalRequests.insert(0, req));
                 saveAllData();
-
-                _sendWebNotification("⚡ [삭제 승인 요청]", "${widget.userName}님이 $dateKey 일정 삭제를 승인 요청했습니다.");
-
+                _sendWebNotification("⚡ [삭제 승인 요청]",
+                    "${widget.userName}님이 $dateKey 일정 삭제를 승인 요청했습니다.");
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('관리자에게 삭제 승인 요청이 전송되었습니다.')),
-                );
+                    const SnackBar(content: Text('관리자에게 삭제 승인 요청이 전송되었습니다.')));
               },
               child: const Text('삭제 승인 요청'),
             ),
@@ -877,11 +920,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                 const SizedBox(height: 14),
                 DropdownButtonFormField<String>(
                   value: shiftTime,
-                  decoration: const InputDecoration(labelText: '근무 시간대 선택', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                      labelText: '근무 시간대 선택', border: OutlineInputBorder()),
                   items: const [
                     DropdownMenuItem(value: "오전 근무", child: Text("오전 근무")),
                     DropdownMenuItem(value: "오후 근무", child: Text("오후 근무")),
-                    DropdownMenuItem(value: "종일/주간 근무", child: Text("종일/주간 근무")),
+                    DropdownMenuItem(
+                        value: "종일/주간 근무", child: Text("종일/주간 근무")),
                     DropdownMenuItem(value: "야간 근무", child: Text("야간 근무")),
                     DropdownMenuItem(value: "휴무", child: Text("휴무")),
                   ],
@@ -894,16 +939,14 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   controller: overtimeController,
                   maxLines: 3,
                   decoration: const InputDecoration(
-                    labelText: '연장 근무 및 비고 메모',
-                    hintText: '예: 연장근무 2시간 진행 (18:00~20:00)',
-                    border: OutlineInputBorder(),
-                  ),
+                      labelText: '연장 근무 및 비고 메모', border: OutlineInputBorder()),
                 ),
               ],
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
             ElevatedButton(
               onPressed: () {
                 final note = overtimeController.text.trim();
@@ -911,19 +954,19 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   'empId': widget.employeeId,
                   'empName': widget.userName,
                   'type': '(실제기록)',
-                  'content': '$shiftTime ${note.isNotEmpty ? ' | 연장/메모: $note' : ''}',
+                  'content':
+                      '$shiftTime ${note.isNotEmpty ? ' | 연장/메모: $note' : ''}',
                 };
-
                 setState(() {
-                  globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((item) => item['empId'] == widget.employeeId);
+                  globalScheduleMap
+                      .putIfAbsent(dateKey, () => [])
+                      .removeWhere((item) => item['empId'] == widget.employeeId);
                   globalScheduleMap[dateKey]!.add(record);
                 });
                 saveAllData();
-
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('지난 근무 기록이 클라우드에 저장되었습니다.')),
-                );
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(const SnackBar(content: Text('지난 근무 기록이 저장되었습니다.')));
               },
               child: const Text('기록 저장'),
             ),
@@ -935,17 +978,16 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
   void _showAddWorkDialog() {
     if (_selectedDate == null) return;
-
     if (_isPastDate(_selectedDate!)) {
       _showPastWorkRecordDialog();
       return;
     }
 
-    final isWeekend = _selectedDate!.weekday == DateTime.saturday || _selectedDate!.weekday == DateTime.sunday;
+    final isWeekend = _selectedDate!.weekday == DateTime.saturday ||
+        _selectedDate!.weekday == DateTime.sunday;
     final dateKey = _formatDateKey(_selectedDate!);
     final bool isLockedThreeWeeks = _isWithinThreeWeeks(_selectedDate!);
     final bool requiresApproval = !widget.isAdmin && isLockedThreeWeeks;
-
     final approvalReasonController = TextEditingController();
 
     if (isWeekend) {
@@ -961,87 +1003,64 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (requiresApproval)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.lock_clock, color: Colors.deepOrange, size: 20),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '🔒 이번 주 포함 총 3주간(다다음 주 일요일까지) 잠금 기간입니다.\n관리자의 승인이 완료된 후 최종 등록됩니다.',
-                              style: TextStyle(fontSize: 12, color: Colors.deepOrange, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  else
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.check_circle, color: Colors.green, size: 20),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '🔓 4주차 이후 날짜는 승인 없이 즉시 등록 및 삭제가 가능합니다.',
-                              style: TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                   DropdownButtonFormField<String>(
                     value: weekendOption,
-                    decoration: const InputDecoration(labelText: '주말 근무 여부', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                        labelText: '주말 근무 여부', border: OutlineInputBorder()),
                     items: const [
-                      DropdownMenuItem(value: "근무 가능", child: Text("근무 가능", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold))),
-                      DropdownMenuItem(value: "근무 불가능", child: Text("근무 불가능", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+                      DropdownMenuItem(
+                          value: "근무 가능",
+                          child: Text("근무 가능",
+                              style: TextStyle(
+                                  color: Colors.blue,
+                                  fontWeight: FontWeight.bold))),
+                      DropdownMenuItem(
+                          value: "근무 불가능",
+                          child: Text("근무 불가능",
+                              style: TextStyle(
+                                  color: Colors.red,
+                                  fontWeight: FontWeight.bold))),
                     ],
                     onChanged: (val) {
-                      if (val != null) setDialogState(() => weekendOption = val);
+                      if (val != null) {
+                        setDialogState(() => weekendOption = val);
+                      }
                     },
                   ),
                   const SizedBox(height: 12),
                   TextField(
-                    controller: weekendNoteController,
-                    decoration: const InputDecoration(labelText: '비고/메모 (선택)', border: OutlineInputBorder()),
-                  ),
+                      controller: weekendNoteController,
+                      decoration: const InputDecoration(
+                          labelText: '비고/메모 (선택)', border: OutlineInputBorder())),
                   if (requiresApproval) ...[
                     const SizedBox(height: 12),
                     TextField(
-                      controller: approvalReasonController,
-                      decoration: const InputDecoration(
-                        labelText: '3주 잠금기간 신청 사유 (필수)',
-                        hintText: '사유를 구체적으로 입력하세요',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.rate_review, color: Colors.deepOrange),
-                      ),
-                    ),
+                        controller: approvalReasonController,
+                        decoration: const InputDecoration(
+                            labelText: '3주 잠금기간 신청 사유 (필수)',
+                            border: OutlineInputBorder())),
                   ],
                 ],
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: requiresApproval ? Colors.deepOrange : const Color(0xFF1B365D)),
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: requiresApproval
+                        ? Colors.deepOrange
+                        : const Color(0xFF1B365D)),
                 onPressed: () {
-                  if (requiresApproval && approvalReasonController.text.trim().isEmpty) {
+                  if (requiresApproval &&
+                      approvalReasonController.text.trim().isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('신청 사유를 입력해주세요.')),
-                    );
+                        const SnackBar(content: Text('신청 사유를 입력해주세요.')));
                     return;
                   }
-
                   final note = weekendNoteController.text.trim();
-                  final contentStr = '주말 $weekendOption ${note.isNotEmpty ? '($note)' : ''}';
+                  final contentStr =
+                      '주말 $weekendOption ${note.isNotEmpty ? '($note)' : ''}';
 
                   if (requiresApproval) {
                     final req = {
@@ -1056,37 +1075,34 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       'requestTime': DateTime.now().toString().substring(0, 16),
                       'status': '대기중',
                     };
-                    setState(() {
-                      globalApprovalRequests.insert(0, req);
-                    });
+                    setState(() => globalApprovalRequests.insert(0, req));
                     saveAllData();
-
-                    _sendWebNotification("⚡ [승인 요청] 3주 잠금기간 주말 근무", "${widget.userName}님이 $dateKey 주말 설정을 승인 요청했습니다.");
-
+                    _sendWebNotification("⚡ [승인 요청] 3주 잠금기간 주말 근무",
+                        "${widget.userName}님이 $dateKey 주말 설정을 승인 요청했습니다.");
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('관리자에게 승인 요청이 전송되었습니다. 관리자 결재 후 캘린더에 최종 반영됩니다.')),
-                    );
+                        const SnackBar(content: Text('관리자에게 승인 요청이 전송되었습니다.')));
                   } else {
                     final record = {
                       'empId': widget.employeeId,
                       'empName': widget.userName,
                       'type': '주말설정',
-                      'content': contentStr,
+                      'content': contentStr
                     };
                     setState(() {
-                      globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((item) => item['empId'] == widget.employeeId);
+                      globalScheduleMap
+                          .putIfAbsent(dateKey, () => [])
+                          .removeWhere((item) => item['empId'] == widget.employeeId);
                       globalScheduleMap[dateKey]!.add(record);
                     });
                     saveAllData();
-
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('주말 일정이 정상 등록되었습니다.')),
-                    );
+                        const SnackBar(content: Text('주말 일정이 등록되었습니다.')));
                   }
                 },
-                child: Text(requiresApproval ? '승인 요청' : '즉시 등록', style: const TextStyle(color: Colors.white)),
+                child: Text(requiresApproval ? '승인 요청' : '즉시 등록',
+                    style: const TextStyle(color: Colors.white)),
               ),
             ],
           ),
@@ -1095,7 +1111,20 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     } else {
       String selectedCategory = "연차";
       String selectedLeaveTime = "8시간";
-      final timeOptions = _generateTimeOptions();
+      List<String> timeOptions = [];
+      for (int i = 0; i <= 16; i++) {
+        int hours = i ~/ 2;
+        int minutes = (i % 2) * 30;
+        if (hours == 0 && minutes == 0) {
+          timeOptions.add("0시간 (0분)");
+        } else if (minutes == 0) {
+          timeOptions.add("$hours시간");
+        } else if (hours == 0) {
+          timeOptions.add("$minutes분");
+        } else {
+          timeOptions.add("$hours시간 $minutes분");
+        }
+      }
       final customNoteController = TextEditingController();
 
       showDialog(
@@ -1107,45 +1136,10 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (requiresApproval)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.lock_clock, color: Colors.deepOrange, size: 20),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '🔒 이번 주 포함 총 3주간(다다음 주 일요일까지) 잠금 기간입니다.\n관리자의 승인이 완료된 후 최종 등록됩니다.',
-                              style: TextStyle(fontSize: 12, color: Colors.deepOrange, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  else
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.check_circle, color: Colors.green, size: 20),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '🔓 4주차 이후 날짜는 승인 없이 즉시 등록 및 삭제가 가능합니다.',
-                              style: TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                   DropdownButtonFormField<String>(
                     value: selectedCategory,
-                    decoration: const InputDecoration(labelText: '신청 항목', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                        labelText: '신청 항목', border: OutlineInputBorder()),
                     items: const [
                       DropdownMenuItem(value: "연차", child: Text("연차")),
                       DropdownMenuItem(value: "체력단련", child: Text("체력단련")),
@@ -1154,7 +1148,9 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       DropdownMenuItem(value: "기타", child: Text("기타")),
                     ],
                     onChanged: (val) {
-                      if (val != null) setDialogState(() => selectedCategory = val);
+                      if (val != null) {
+                        setDialogState(() => selectedCategory = val);
+                      }
                     },
                   ),
                   const SizedBox(height: 14),
@@ -1162,73 +1158,72 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     DropdownButtonFormField<String>(
                       value: selectedLeaveTime,
                       decoration: const InputDecoration(
-                        labelText: '연차 사용 시간 (0분 ~ 8시간)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.timer_outlined),
-                      ),
-                      items: timeOptions.map((time) => DropdownMenuItem(value: time, child: Text(time))).toList(),
+                          labelText: '연차 사용 시간', border: OutlineInputBorder()),
+                      items: timeOptions
+                          .map((time) =>
+                              DropdownMenuItem(value: time, child: Text(time)))
+                          .toList(),
                       onChanged: (val) {
-                        if (val != null) setDialogState(() => selectedLeaveTime = val);
+                        if (val != null) {
+                          setDialogState(() => selectedLeaveTime = val);
+                        }
                       },
                     ),
                     const SizedBox(height: 14),
                   ],
                   if (selectedCategory == "기타") ...[
                     TextField(
-                      controller: customNoteController,
-                      decoration: const InputDecoration(
-                        labelText: '기타 사유 입력 (필수)',
-                        hintText: '사유를 구체적으로 입력하세요',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.edit_note),
-                      ),
-                    ),
+                        controller: customNoteController,
+                        decoration: const InputDecoration(
+                            labelText: '기타 사유 입력 (필수)',
+                            border: OutlineInputBorder())),
                     const SizedBox(height: 14),
                   ],
                   if (selectedCategory != "기타")
                     TextField(
-                      controller: customNoteController,
-                      decoration: const InputDecoration(labelText: '비고/메모 (선택)', border: OutlineInputBorder()),
-                    ),
+                        controller: customNoteController,
+                        decoration: const InputDecoration(
+                            labelText: '비고/메모 (선택)',
+                            border: OutlineInputBorder())),
                   if (requiresApproval) ...[
                     const SizedBox(height: 14),
                     TextField(
-                      controller: approvalReasonController,
-                      decoration: const InputDecoration(
-                        labelText: '3주 잠금기간 신청 사유 (필수)',
-                        hintText: '사유를 작성해주세요',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.rate_review, color: Colors.deepOrange),
-                      ),
-                    ),
+                        controller: approvalReasonController,
+                        decoration: const InputDecoration(
+                            labelText: '3주 잠금기간 신청 사유 (필수)',
+                            border: OutlineInputBorder())),
                   ],
                 ],
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: requiresApproval ? Colors.deepOrange : const Color(0xFF1B365D)),
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: requiresApproval
+                        ? Colors.deepOrange
+                        : const Color(0xFF1B365D)),
                 onPressed: () {
-                  if (selectedCategory == "기타" && customNoteController.text.trim().isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('기타 사유를 입력해주세요.')));
+                  if (selectedCategory == "기타" &&
+                      customNoteController.text.trim().isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('기타 사유를 입력해주세요.')));
                     return;
                   }
-                  if (requiresApproval && approvalReasonController.text.trim().isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('신청 사유를 입력해주세요.')));
+                  if (requiresApproval &&
+                      approvalReasonController.text.trim().isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('신청 사유를 입력해주세요.')));
                     return;
                   }
-
-                  String details = "";
-                  if (selectedCategory == "연차") {
-                    details = "연차 ($selectedLeaveTime)";
-                  } else if (selectedCategory == "기타") {
-                    details = "기타 (${customNoteController.text.trim()})";
-                  } else {
-                    details = selectedCategory;
-                  }
-
-                  if (selectedCategory != "기타" && customNoteController.text.trim().isNotEmpty) {
+                  String details = (selectedCategory == "연차")
+                      ? "연차 ($selectedLeaveTime)"
+                      : ((selectedCategory == "기타")
+                          ? "기타 (${customNoteController.text.trim()})"
+                          : selectedCategory);
+                  if (selectedCategory != "기타" &&
+                      customNoteController.text.trim().isNotEmpty) {
                     details += " - ${customNoteController.text.trim()}";
                   }
 
@@ -1245,37 +1240,34 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       'requestTime': DateTime.now().toString().substring(0, 16),
                       'status': '대기중',
                     };
-                    setState(() {
-                      globalApprovalRequests.insert(0, req);
-                    });
+                    setState(() => globalApprovalRequests.insert(0, req));
                     saveAllData();
-
-                    _sendWebNotification("⚡ [승인 요청] 3주 잠금기간 휴가/근무", "${widget.userName}님이 $dateKey '$details' 건에 대한 승인을 요청했습니다.");
-
+                    _sendWebNotification("⚡ [승인 요청] 3주 잠금기간 휴가/근무",
+                        "${widget.userName}님이 $dateKey '$details' 승인을 요청했습니다.");
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('관리자에게 승인 요청이 전송되었습니다. 관리자 결재 후 캘린더에 최종 표시됩니다.')),
-                    );
+                        const SnackBar(content: Text('관리자에게 승인 요청이 전송되었습니다.')));
                   } else {
                     final record = {
                       'empId': widget.employeeId,
                       'empName': widget.userName,
                       'type': selectedCategory,
-                      'content': details,
+                      'content': details
                     };
                     setState(() {
-                      globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((item) => item['empId'] == widget.employeeId);
+                      globalScheduleMap
+                          .putIfAbsent(dateKey, () => [])
+                          .removeWhere((item) => item['empId'] == widget.employeeId);
                       globalScheduleMap[dateKey]!.add(record);
                     });
                     saveAllData();
-
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('신청이 정상 등록되었습니다.')),
-                    );
+                        const SnackBar(content: Text('신청이 정상 등록되었습니다.')));
                   }
                 },
-                child: Text(requiresApproval ? '승인 요청' : '즉시 신청', style: const TextStyle(color: Colors.white)),
+                child: Text(requiresApproval ? '승인 요청' : '즉시 신청',
+                    style: const TextStyle(color: Colors.white)),
               ),
             ],
           ),
@@ -1293,20 +1285,12 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     required bool isLockedThreeWeeks,
   }) {
     if (items.isEmpty) return const SizedBox.shrink();
-
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: color.withOpacity(0.3)),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.04),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1314,31 +1298,29 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(9),
-                topRight: Radius.circular(9),
-              ),
-            ),
+                color: color.withOpacity(0.1),
+                borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(9), topRight: Radius.circular(9))),
             child: Row(
               children: [
                 Icon(icon, size: 18, color: color),
                 const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: color),
-                ),
+                Text(title,
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: color)),
                 const Spacer(),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    '총 ${items.length}명',
-                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                  ),
+                      color: color, borderRadius: BorderRadius.circular(12)),
+                  child: Text('총 ${items.length}명',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
@@ -1347,33 +1329,33 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: items.length,
-            separatorBuilder: (context, index) => Divider(height: 1, color: Colors.grey.shade200),
+            separatorBuilder: (context, index) =>
+                Divider(height: 1, color: Colors.grey.shade200),
             itemBuilder: (context, idx) {
               final item = items[idx];
-
               return ListTile(
                 dense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
                 leading: CircleAvatar(
                   radius: 14,
                   backgroundColor: color,
                   child: Text(
-                    item['empName'] != null && item['empName']!.isNotEmpty ? item['empName']![0] : 'U',
-                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                  ),
+                      item['empName']!.isNotEmpty ? item['empName']![0] : 'U',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold)),
                 ),
-                title: Text(
-                  '${item['empName']} (${item['empId']})',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                ),
-                subtitle: Text(
-                  item['content'] ?? '',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
-                ),
+                title: Text('${item['empName']} (${item['empId']})',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 13)),
+                subtitle: Text(item['content'] ?? '',
+                    style:
+                        TextStyle(fontSize: 12, color: Colors.grey.shade800)),
                 trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                  tooltip: widget.isAdmin ? '관리자 삭제' : (isLockedThreeWeeks ? '삭제 승인 요청' : '즉시 삭제'),
-                  onPressed: () => _handleDeleteItem(selectedKey, item, isLockedThreeWeeks),
+                  icon: const Icon(Icons.delete_outline,
+                      color: Colors.redAccent, size: 20),
+                  onPressed: () => _handleDeleteItem(
+                      selectedKey, item, isLockedThreeWeeks),
                 ),
               );
             },
@@ -1385,33 +1367,41 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final selectedKey = _selectedDate != null ? _formatDateKey(_selectedDate!) : '';
+    final selectedKey =
+        _selectedDate != null ? _formatDateKey(_selectedDate!) : '';
     final rawList = globalScheduleMap[selectedKey] ?? [];
-
     final displayList = widget.isAdmin
         ? rawList
         : rawList.where((item) => item['empId'] == widget.employeeId).toList();
-
     final myPendingList = globalApprovalRequests
-        .where((req) => req['date'] == selectedKey && (req['status'] == '대기중') && (widget.isAdmin || req['empId'] == widget.employeeId))
+        .where((req) =>
+            req['date'] == selectedKey &&
+            (req['status'] == '대기중') &&
+            (widget.isAdmin || req['empId'] == widget.employeeId))
         .toList();
+    final bool isPast =
+        _selectedDate != null ? _isPastDate(_selectedDate!) : false;
+    final bool isLockedThreeWeeks =
+        _selectedDate != null && _isWithinThreeWeeks(_selectedDate!);
 
-    final bool isPast = _selectedDate != null ? _isPastDate(_selectedDate!) : false;
-    final bool isLockedThreeWeeks = _selectedDate != null && _isWithinThreeWeeks(_selectedDate!);
-
-    final annualLeaveList = displayList.where((i) => i['type'] == '연차').toList();
-    final healthTrainList = displayList.where((i) => i['type'] == '체력단련').toList();
-    final familyLoveList = displayList.where((i) => i['type'] == '가족사랑').toList();
-    final checkupList = displayList.where((i) => i['type'] == '건강검진').toList();
-    final weekendList = displayList.where((i) => i['type'] == '주말설정').toList();
-    final othersAndActualList = displayList.where((i) =>
-        i['type'] != '연차' &&
-        i['type'] != '체력단련' &&
-        i['type'] != '가족사랑' &&
-        i['type'] != '건강검진' &&
-        i['type'] != '주말설정').toList();
-
-    final latestPost = _posts.isNotEmpty ? _posts.first : null;
+    final annualLeaveList =
+        displayList.where((i) => i['type'] == '연차').toList();
+    final healthTrainList =
+        displayList.where((i) => i['type'] == '체력단련').toList();
+    final familyLoveList =
+        displayList.where((i) => i['type'] == '가족사랑').toList();
+    final checkupList =
+        displayList.where((i) => i['type'] == '건강검진').toList();
+    final weekendList =
+        displayList.where((i) => i['type'] == '주말설정').toList();
+    final othersList = displayList
+        .where((i) =>
+            i['type'] != '연차' &&
+            i['type'] != '체력단련' &&
+            i['type'] != '가족사랑' &&
+            i['type'] != '건강검진' &&
+            i['type'] != '주말설정')
+        .toList();
 
     return Scaffold(
       drawer: Drawer(
@@ -1420,103 +1410,71 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
           children: [
             UserAccountsDrawerHeader(
               decoration: BoxDecoration(
-                color: widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D),
-              ),
-              currentAccountPicture: CircleAvatar(
-                backgroundColor: Colors.white,
-                child: Text(
-                  widget.userName.isNotEmpty ? widget.userName[0] : 'U',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D)),
-                ),
-              ),
-              accountName: Text('${widget.userName} (${widget.isAdmin ? "관리자" : "사원"})', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  color: widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D)),
+              accountName: Text(
+                  '${widget.userName} (${widget.isAdmin ? "관리자" : "사원"})',
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
               accountEmail: Text('사번: ${widget.employeeId}'),
             ),
             ListTile(
-              leading: const Icon(Icons.calendar_month, color: Color(0xFF1B365D)),
-              title: const Text('근무 캘린더 (메인)'),
-              onTap: () => Navigator.pop(context),
-            ),
+                leading: const Icon(Icons.calendar_month),
+                title: const Text('근무 캘린더 (메인)'),
+                onTap: () => Navigator.pop(context)),
             ListTile(
-              leading: const Icon(Icons.access_time_filled, color: Colors.blueAccent),
-              title: Text(widget.isAdmin ? '⏰ 근태기록 관리 및 등록' : '⏰ 전체 사원 근태기록 조회', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-              subtitle: const Text('오전, 오후, 야간 및 추가 근무 관리'),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-              onTap: () {
-                Navigator.pop(context);
-                _openAttendanceScreen();
-              },
-            ),
+                leading: const Icon(Icons.access_time_filled,
+                    color: Colors.blueAccent),
+                title: const Text('⏰ 근태기록 관리 및 조회'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openAttendanceScreen();
+                }),
             ListTile(
-              leading: const Icon(Icons.date_range, color: Colors.teal),
-              title: const Text('🌴 전체 연차/휴가자 월별 현황', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal)),
-              subtitle: const Text('전체 사원의 월별 휴가 현황 타임라인'),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-              onTap: () {
-                Navigator.pop(context);
-                _openVacationMonthlyOverviewScreen();
-              },
-            ),
+                leading: const Icon(Icons.date_range, color: Colors.teal),
+                title: const Text('🌴 전체 연차/휴가자 월별 현황'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openVacationMonthlyOverviewScreen();
+                }),
             ListTile(
-              leading: const Icon(Icons.dynamic_feed, color: Colors.indigo),
-              title: Text(widget.isAdmin ? '게시판 / 근무표 관리 (글&사진)' : '게시판 / 근무표 보기',
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
-              subtitle: Text('등록된 게시물: ${_posts.length}건'),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-              onTap: () {
-                Navigator.pop(context);
-                _openBulletinScreen();
-              },
-            ),
+                leading: const Icon(Icons.dynamic_feed, color: Colors.indigo),
+                title: const Text('게시판 / 근무표 보기'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openBulletinScreen();
+                }),
             if (widget.isAdmin) ...[
               ListTile(
-                leading: const Icon(Icons.notification_important, color: Colors.deepOrange),
-                title: const Text('🚨 긴급승인 요청 및 이력', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
-                subtitle: Text('대기/승인/반려 영구 기록 관리 (${globalApprovalRequests.length}건)'),
-                trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-                onTap: () {
-                  Navigator.pop(context);
-                  _openEmergencyApprovalHistoryScreen();
-                },
-              ),
+                  leading: const Icon(Icons.notification_important,
+                      color: Colors.deepOrange),
+                  title: const Text('🚨 긴급승인 요청 및 이력'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _openEmergencyApprovalHistoryScreen();
+                  }),
               ListTile(
-                leading: const Icon(Icons.people_alt, color: Colors.indigo),
-                title: const Text('전체 사원 신청 종합현황', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
-                subtitle: const Text('날짜 드래그 선택 및 사원 검색'),
-                trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (c) => AllEmployeesOverviewScreen(
-                        scheduleMap: globalScheduleMap,
-                        onScheduleUpdated: () => setState(() {}),
-                      ),
-                    ),
-                  );
-                },
-              ),
+                  leading: const Icon(Icons.people_alt, color: Colors.indigo),
+                  title: const Text('전체 사원 신청 종합현황'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (c) => AllEmployeesOverviewScreen(
+                                scheduleMap: globalScheduleMap,
+                                onScheduleUpdated: () => setState(() {}))));
+                  }),
             ],
-            ListTile(
-              leading: const Icon(Icons.notifications_active, color: Colors.blueAccent),
-              title: const Text('알림 권한 설정'),
-              subtitle: Text(_notificationGranted ? '알림 활성화됨' : '알림 꺼짐 (클릭하여 켜기)'),
-              onTap: () {
-                Navigator.pop(context);
-                _requestNotificationExplicitly();
-              },
-            ),
             const Divider(),
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.redAccent),
-              title: const Text('로그아웃', style: TextStyle(color: Colors.redAccent)),
+              title: const Text('로그아웃',
+                  style: TextStyle(color: Colors.redAccent)),
               onTap: () {
                 html.window.localStorage.remove('is_logged_in');
                 Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (context) => const LoginScreen()),
-                );
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const LoginScreen()));
               },
             ),
           ],
@@ -1528,62 +1486,33 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
-            icon: _isSyncing
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                  )
-                : const Icon(Icons.sync),
-            tooltip: '서버 데이터 실시간 동기화',
-            onPressed: _syncFromFirebase,
-          ),
+              icon: _isSyncing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.sync),
+              onPressed: _syncFromFirebase),
           IconButton(
-            icon: const Icon(Icons.access_time_filled),
-            tooltip: '근태기록 관리/조회',
-            onPressed: _openAttendanceScreen,
-          ),
-          if (widget.isAdmin) ...[
-            Stack(
-              alignment: Alignment.center,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.notification_important),
-                  tooltip: '긴급승인 요청 및 이력',
-                  onPressed: _openEmergencyApprovalHistoryScreen,
-                ),
-                if (globalApprovalRequests.where((r) => r['status'] == '대기중').isNotEmpty)
-                  Positioned(
-                    right: 6,
-                    top: 6,
-                    child: CircleAvatar(
-                      radius: 8,
-                      backgroundColor: Colors.red,
-                      child: Text(
-                        '${globalApprovalRequests.where((r) => r['status'] == '대기중').length}',
-                        style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  )
-              ],
-            ),
-          ],
+              icon: const Icon(Icons.access_time_filled),
+              onPressed: _openAttendanceScreen),
+          if (widget.isAdmin)
+            IconButton(
+                icon: const Icon(Icons.notification_important),
+                onPressed: _openEmergencyApprovalHistoryScreen),
           IconButton(
-            icon: const Icon(Icons.dynamic_feed),
-            tooltip: '게시판 열기',
-            onPressed: _openBulletinScreen,
-          ),
+              icon: const Icon(Icons.dynamic_feed),
+              onPressed: _openBulletinScreen),
           IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: '로그아웃',
-            onPressed: () {
-              html.window.localStorage.remove('is_logged_in');
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (context) => const LoginScreen()),
-              );
-            },
-          ),
+              icon: const Icon(Icons.logout),
+              onPressed: () {
+                html.window.localStorage.remove('is_logged_in');
+                Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const LoginScreen()));
+              }),
         ],
       ),
       body: SingleChildScrollView(
@@ -1591,32 +1520,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.indigo.shade50,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.indigo.shade200),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.cloud_done, color: Colors.indigo, size: 20),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '• 100명 전 사원 중앙 클라우드 실시간 연동 중\n• 이번 주 포함 총 3주간: 승인 필요 / 4주차부터 자유 신청',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1B365D)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
             Card(
               color: Colors.amber.shade50,
-              elevation: 1,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: Padding(
                 padding: const EdgeInsets.all(12.0),
                 child: Column(
@@ -1625,171 +1530,36 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.campaign, color: Colors.orange, size: 20),
-                            SizedBox(width: 6),
-                            Text('공지사항', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
+                        const Text('📢 공지사항',
+                            style: TextStyle(
+                                fontSize: 15, fontWeight: FontWeight.bold)),
                         if (widget.isAdmin)
                           IconButton(
-                            icon: const Icon(Icons.edit, color: Colors.blueAccent, size: 20),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            tooltip: '공지 수정 (관리자)',
-                            onPressed: _showEditNoticeDialog,
-                          ),
+                              icon: const Icon(Icons.edit, size: 18),
+                              onPressed: _showEditNoticeDialog),
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(_notice, style: const TextStyle(fontSize: 13, height: 1.35)),
+                    Text(_notice,
+                        style: const TextStyle(fontSize: 13, height: 1.35)),
                   ],
                 ),
               ),
             ),
-
-            const SizedBox(height: 8),
-
-            Card(
-              color: Colors.blue.shade50,
-              elevation: 1,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.blue.shade200),
-              ),
-              child: InkWell(
-                onTap: _openAttendanceScreen,
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.access_time_filled, color: Colors.blueAccent, size: 22),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          widget.isAdmin ? '⏰ 사원 근태기록 관리 및 등록 바로가기' : '⏰ 전체 사원 근태기록 조회 (내 기록 검색)',
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.blueAccent),
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right, color: Colors.blueAccent, size: 20),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            Card(
-              color: Colors.teal.shade50,
-              elevation: 1,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.teal.shade200),
-              ),
-              child: InkWell(
-                onTap: _openVacationMonthlyOverviewScreen,
-                borderRadius: BorderRadius.circular(12),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
-                  child: Row(
-                    children: [
-                      Icon(Icons.date_range, color: Colors.teal, size: 22),
-                      SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          '🌴 전체 사원 연차/휴가 사용 현황 보러가기',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.teal),
-                        ),
-                      ),
-                      Icon(Icons.chevron_right, color: Colors.teal, size: 20),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            Card(
-              color: Colors.white,
-              elevation: 1.5,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.indigo.shade100),
-              ),
-              child: InkWell(
-                onTap: _openBulletinScreen,
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(8)),
-                        child: const Icon(Icons.article, color: Color(0xFF1B365D), size: 24),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(color: const Color(0xFF1B365D), borderRadius: BorderRadius.circular(4)),
-                                  child: const Text('최신 게시글', style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    latestPost != null ? latestPost['title'] ?? '새로운 게시물이 없습니다.' : '등록된 게시물이 없습니다.',
-                                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              latestPost != null ? '${latestPost['time']} | 작성자: ${latestPost['author']}' : '터치하여 게시판으로 이동',
-                              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right, color: Colors.grey),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 IconButton(
-                  icon: const Icon(Icons.chevron_left),
-                  onPressed: () => setState(() {
-                    _currentMonth = DateTime(_currentMonth.year, _currentMonth.month - 1, 1);
-                  }),
-                ),
-                Text(
-                  '${_currentMonth.year}년 ${_currentMonth.month}월',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
+                    icon: const Icon(Icons.chevron_left),
+                    onPressed: () => setState(() => _currentMonth =
+                        DateTime(_currentMonth.year, _currentMonth.month - 1, 1))),
+                Text('${_currentMonth.year}년 ${_currentMonth.month}월',
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold)),
                 IconButton(
-                  icon: const Icon(Icons.chevron_right),
-                  onPressed: () => setState(() {
-                    _currentMonth = DateTime(_currentMonth.year, _currentMonth.month + 1, 1);
-                  }),
-                ),
+                    icon: const Icon(Icons.chevron_right),
+                    onPressed: () => setState(() => _currentMonth =
+                        DateTime(_currentMonth.year, _currentMonth.month + 1, 1))),
               ],
             ),
             const SizedBox(height: 6),
@@ -1797,188 +1567,102 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             const SizedBox(height: 12),
             Card(
               elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: Padding(
                 padding: const EdgeInsets.all(14.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            widget.isAdmin ? '👥 $selectedKey 전체 사원 항목별 현황' : '📅 $selectedKey 내 신청',
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (isPast)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(6)),
-                            child: const Text('지난 날짜', style: TextStyle(fontSize: 11, color: Colors.black54)),
-                          )
-                        else if (isLockedThreeWeeks && !widget.isAdmin)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(6)),
-                            child: const Text('🔒 3주 잠금기간 (승인필요)', style: TextStyle(fontSize: 11, color: Colors.deepOrange, fontWeight: FontWeight.bold)),
-                          )
-                        else if (!isLockedThreeWeeks && !widget.isAdmin)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(6)),
-                            child: Text('🔓 자유 신청/삭제 가능', style: TextStyle(fontSize: 11, color: Colors.green.shade800, fontWeight: FontWeight.bold)),
-                          ),
-                      ],
-                    ),
+                    Text(
+                        widget.isAdmin
+                            ? '👥 $selectedKey 전체 사원 항목별 현황'
+                            : '📅 $selectedKey 내 신청',
+                        style: const TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 46,
-                      child: ElevatedButton.icon(
-                        onPressed: isPast ? _showPastWorkRecordDialog : _showAddWorkDialog,
-                        icon: Icon(isPast ? Icons.edit_calendar : (isLockedThreeWeeks && !widget.isAdmin ? Icons.lock_clock : Icons.add_task), size: 20),
-                        label: Text(
-                          isPast ? '지난 근무 기록' : (isLockedThreeWeeks && !widget.isAdmin ? '3주 잠금기간 긴급 승인 요청' : '근무 / 휴가 신청하기'),
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                        ),
-                        style: ElevatedButton.styleFrom(
+                    ElevatedButton.icon(
+                      onPressed: isPast
+                          ? _showPastWorkRecordDialog
+                          : _showAddWorkDialog,
+                      icon: Icon(isPast ? Icons.edit_calendar : Icons.add_task),
+                      label: Text(isPast
+                          ? '지난 근무 기록'
+                          : (isLockedThreeWeeks && !widget.isAdmin
+                              ? '3주 잠금기간 긴급 승인 요청'
+                              : '근무 / 휴가 신청하기')),
+                      style: ElevatedButton.styleFrom(
                           backgroundColor: isPast
                               ? Colors.blueGrey
-                              : (isLockedThreeWeeks && !widget.isAdmin ? Colors.deepOrange : (widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D))),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                      ),
+                              : (isLockedThreeWeeks && !widget.isAdmin
+                                  ? Colors.deepOrange
+                                  : const Color(0xFF1B365D)),
+                          foregroundColor: Colors.white),
                     ),
                     const Divider(height: 24),
-                    if (myPendingList.isNotEmpty) ...[
-                      const Text('⏳ 관리자 승인 대기 건', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange)),
-                      const SizedBox(height: 6),
-                      ...myPendingList.map((req) => Container(
-                            margin: const EdgeInsets.only(bottom: 6),
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.orange.shade200)),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.hourglass_top, color: Colors.deepOrange, size: 20),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text('[${req['empName']}] [${req['actionType'] ?? '신청'}] ${req['content']} (사유: ${req['reason']})',
-                                      style: const TextStyle(fontSize: 13, color: Colors.brown, fontWeight: FontWeight.w600)),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                  decoration: BoxDecoration(color: Colors.deepOrange, borderRadius: BorderRadius.circular(10)),
-                                  child: const Text('승인대기', style: TextStyle(color: Colors.white, fontSize: 11)),
-                                ),
-                              ],
-                            ),
-                          )),
-                      const SizedBox(height: 10),
-                    ],
-
-                    if (displayList.isEmpty && myPendingList.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16.0),
-                        child: Center(
-                          child: Text(
-                            widget.isAdmin ? '해당 날짜에 등록된 전체 사원 내역이 없습니다.' : '해당 날짜에 등록된 내 근무 일정이 없습니다.',
-                            style: const TextStyle(color: Colors.grey),
-                          ),
-                        ),
-                      )
-                    else if (widget.isAdmin) ...[
+                    if (widget.isAdmin) ...[
                       _buildGroupSection(
-                        title: '🌴 연차 신청자',
-                        color: Colors.blue.shade700,
-                        icon: Icons.beach_access,
-                        items: annualLeaveList,
-                        selectedKey: selectedKey,
-                        isLockedThreeWeeks: isLockedThreeWeeks,
-                      ),
+                          title: '🌴 연차 신청자',
+                          color: Colors.blue.shade700,
+                          icon: Icons.beach_access,
+                          items: annualLeaveList,
+                          selectedKey: selectedKey,
+                          isLockedThreeWeeks: isLockedThreeWeeks),
                       _buildGroupSection(
-                        title: '❤️ 가족사랑의 날',
-                        color: Colors.purple.shade600,
-                        icon: Icons.family_restroom,
-                        items: familyLoveList,
-                        selectedKey: selectedKey,
-                        isLockedThreeWeeks: isLockedThreeWeeks,
-                      ),
+                          title: '❤️ 가족사랑의 날',
+                          color: Colors.purple.shade600,
+                          icon: Icons.family_restroom,
+                          items: familyLoveList,
+                          selectedKey: selectedKey,
+                          isLockedThreeWeeks: isLockedThreeWeeks),
                       _buildGroupSection(
-                        title: '💪 체력단련 휴가',
-                        color: Colors.teal.shade700,
-                        icon: Icons.fitness_center,
-                        items: healthTrainList,
-                        selectedKey: selectedKey,
-                        isLockedThreeWeeks: isLockedThreeWeeks,
-                      ),
+                          title: '💪 체력단련 휴가',
+                          color: Colors.teal.shade700,
+                          icon: Icons.fitness_center,
+                          items: healthTrainList,
+                          selectedKey: selectedKey,
+                          isLockedThreeWeeks: isLockedThreeWeeks),
                       _buildGroupSection(
-                        title: '🩺 건강검진',
-                        color: Colors.orange.shade800,
-                        icon: Icons.medical_services,
-                        items: checkupList,
-                        selectedKey: selectedKey,
-                        isLockedThreeWeeks: isLockedThreeWeeks,
-                      ),
+                          title: '🩺 건강검진',
+                          color: Colors.orange.shade800,
+                          icon: Icons.medical_services,
+                          items: checkupList,
+                          selectedKey: selectedKey,
+                          isLockedThreeWeeks: isLockedThreeWeeks),
                       _buildGroupSection(
-                        title: '🗓️ 주말 근무/휴무 설정',
-                        color: Colors.indigo.shade700,
-                        icon: Icons.weekend,
-                        items: weekendList,
-                        selectedKey: selectedKey,
-                        isLockedThreeWeeks: isLockedThreeWeeks,
-                      ),
+                          title: '🗓️ 주말 근무/휴무 설정',
+                          color: Colors.indigo.shade700,
+                          icon: Icons.weekend,
+                          items: weekendList,
+                          selectedKey: selectedKey,
+                          isLockedThreeWeeks: isLockedThreeWeeks),
                       _buildGroupSection(
-                        title: '📝 기타 사유 및 근무 기록',
-                        color: Colors.blueGrey.shade700,
-                        icon: Icons.history_edu,
-                        items: othersAndActualList,
-                        selectedKey: selectedKey,
-                        isLockedThreeWeeks: isLockedThreeWeeks,
-                      ),
-                    ] else
+                          title: '📝 기타 사유 및 근무 기록',
+                          color: Colors.blueGrey.shade700,
+                          icon: Icons.history_edu,
+                          items: othersList,
+                          selectedKey: selectedKey,
+                          isLockedThreeWeeks: isLockedThreeWeeks),
+                    ] else ...[
                       ListView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
                         itemCount: displayList.length,
                         itemBuilder: (ctx, idx) {
                           final item = displayList[idx];
-                          final isActual = item['type'] == '(실제기록)';
-
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            decoration: BoxDecoration(
-                              color: isActual ? Colors.grey.shade100 : Colors.blue.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.grey.shade200),
-                            ),
-                            child: ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: isActual ? Colors.blueGrey : const Color(0xFF1B365D),
-                                child: Icon(
-                                  isActual ? Icons.history : Icons.event_available,
-                                  color: Colors.white,
-                                  size: 18,
-                                ),
-                              ),
-                              title: Text(
-                                '[${item['empName']}(${item['empId']})] ${item['content']}',
-                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                              ),
-                              subtitle: Text('구분: ${item['type']}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                tooltip: widget.isAdmin ? '관리자 삭제' : (isLockedThreeWeeks ? '삭제 승인 요청' : '즉시 삭제'),
-                                onPressed: () => _handleDeleteItem(selectedKey, item, isLockedThreeWeeks),
-                              ),
-                            ),
+                          return ListTile(
+                            title: Text(
+                                '[${item['empName']}] ${item['content']}',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600)),
+                            subtitle: Text('구분: ${item['type']}'),
+                            trailing: IconButton(
+                                icon: const Icon(Icons.delete_outline,
+                                    color: Colors.redAccent),
+                                onPressed: () => _handleDeleteItem(
+                                    selectedKey, item, isLockedThreeWeeks)),
                           );
                         },
                       ),
+                    ],
                   ],
                 ),
               ),
@@ -1990,133 +1674,106 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   }
 
   Widget _buildCalendarGrid() {
-    final firstDayOfMonth = DateTime(_currentMonth.year, _currentMonth.month, 1);
-    final daysInMonth = DateTime(_currentMonth.year, _currentMonth.month + 1, 0).day;
+    final firstDayOfMonth =
+        DateTime(_currentMonth.year, _currentMonth.month, 1);
+    final daysInMonth =
+        DateTime(_currentMonth.year, _currentMonth.month + 1, 0).day;
     final startWeekday = firstDayOfMonth.weekday % 7;
-
     final weekLabels = ['일', '월', '화', '수', '목', '금', '토'];
 
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade200)),
       child: Column(
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: weekLabels.map((w) {
-              return Expanded(
-                child: Center(
-                  child: Text(
-                    w,
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: w == '일' ? Colors.red : (w == '토' ? Colors.blue : Colors.black87),
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
+            children: weekLabels
+                .map((w) => Expanded(
+                    child: Center(
+                        child: Text(w,
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: w == '일'
+                                    ? Colors.red
+                                    : (w == '토'
+                                        ? Colors.blue
+                                        : Colors.black87))))))
+                .toList(),
           ),
           const Divider(height: 16),
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 7,
-              childAspectRatio: 1.1,
-            ),
+                crossAxisCount: 7, childAspectRatio: 1.1),
             itemCount: startWeekday + daysInMonth,
             itemBuilder: (context, index) {
-              if (index < startWeekday) {
-                return const SizedBox.shrink();
-              }
+              if (index < startWeekday) return const SizedBox.shrink();
               final dayNum = index - startWeekday + 1;
-              final cellDate = DateTime(_currentMonth.year, _currentMonth.month, dayNum);
+              final cellDate = DateTime(
+                  _currentMonth.year, _currentMonth.month, dayNum);
               final cellKey = _formatDateKey(cellDate);
               final isSelected = _selectedDate != null &&
                   _selectedDate!.year == cellDate.year &&
                   _selectedDate!.month == cellDate.month &&
                   _selectedDate!.day == cellDate.day;
-
               final allList = globalScheduleMap[cellKey] ?? [];
               final filteredList = widget.isAdmin
                   ? allList
-                  : allList.where((item) => item['empId'] == widget.employeeId).toList();
-
-              final pendingList = globalApprovalRequests
-                  .where((req) => req['date'] == cellKey && (req['status'] == '대기중') && (widget.isAdmin || req['empId'] == widget.employeeId))
-                  .toList();
-
-              final hasData = filteredList.isNotEmpty;
-              final hasPending = pendingList.isNotEmpty;
+                  : allList
+                      .where((item) => item['empId'] == widget.employeeId)
+                      .toList();
               final isPast = _isPastDate(cellDate);
-              final isLockedThreeWeeks = _isWithinThreeWeeks(cellDate);
 
               return InkWell(
                 onTap: () => setState(() => _selectedDate = cellDate),
-                borderRadius: BorderRadius.circular(8),
                 child: Container(
                   margin: const EdgeInsets.all(2),
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? (isPast ? Colors.blueGrey.withOpacity(0.2) : const Color(0xFF1B365D).withOpacity(0.15))
+                        ? const Color(0xFF1B365D).withOpacity(0.15)
                         : (isPast ? Colors.grey.shade100 : Colors.transparent),
                     border: isSelected
-                        ? Border.all(color: isPast ? Colors.blueGrey : (widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D)), width: 1.5)
+                        ? Border.all(
+                            color: const Color(0xFF1B365D), width: 1.5)
                         : null,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(
-                        '$dayNum',
-                        style: TextStyle(
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          color: isPast
-                              ? Colors.grey.shade500
-                              : (cellDate.weekday == 7 ? Colors.red : (cellDate.weekday == 6 ? Colors.blue : Colors.black87)),
-                        ),
-                      ),
-                      if (hasPending)
+                      Text('$dayNum',
+                          style: TextStyle(
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                              color: isPast
+                                  ? Colors.grey
+                                  : (cellDate.weekday == 7
+                                      ? Colors.red
+                                      : (cellDate.weekday == 6
+                                          ? Colors.blue
+                                          : Colors.black87)))),
+                      if (filteredList.isNotEmpty)
                         Container(
                           margin: const EdgeInsets.only(top: 2),
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 1),
                           decoration: BoxDecoration(
-                            color: Colors.deepOrange,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Text(
-                            '대기',
-                            style: TextStyle(fontSize: 8, color: Colors.white, fontWeight: FontWeight.bold),
-                          ),
-                        )
-                      else if (hasData)
-                        Container(
-                          margin: const EdgeInsets.only(top: 2),
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: widget.isAdmin ? Colors.indigo : const Color(0xFFE35205),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
+                              color: const Color(0xFFE35205),
+                              borderRadius: BorderRadius.circular(10)),
                           child: Text(
-                            widget.isAdmin ? '${filteredList.length}건' : '●',
-                            style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold),
-                          ),
-                        )
-                      else if (isLockedThreeWeeks && !isPast)
-                        Container(
-                          margin: const EdgeInsets.only(top: 3),
-                          width: 4,
-                          height: 4,
-                          decoration: const BoxDecoration(
-                            color: Colors.orange,
-                            shape: BoxShape.circle,
-                          ),
+                              widget.isAdmin
+                                  ? '${filteredList.length}건'
+                                  : '●',
+                              style: const TextStyle(
+                                  fontSize: 8,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold)),
                         ),
                     ],
                   ),
@@ -2130,240 +1787,90 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
   }
 }
 
-// 4. [기능 1번] 긴급승인 사용자 전용 카테고리 (신청일시/상태/기록 보존)
+// 4. 긴급승인 사용자 전용 카테고리
 class EmergencyApprovalHistoryScreen extends StatefulWidget {
   final bool isAdmin;
   final VoidCallback onUpdated;
   final Function(String title, String body) sendNotification;
 
-  const EmergencyApprovalHistoryScreen({
-    super.key,
-    required this.isAdmin,
-    required this.onUpdated,
-    required this.sendNotification,
-  });
+  const EmergencyApprovalHistoryScreen(
+      {super.key,
+      required this.isAdmin,
+      required this.onUpdated,
+      required this.sendNotification});
 
   @override
-  State<EmergencyApprovalHistoryScreen> createState() => _EmergencyApprovalHistoryScreenState();
+  State<EmergencyApprovalHistoryScreen> createState() =>
+      _EmergencyApprovalHistoryScreenState();
 }
 
-class _EmergencyApprovalHistoryScreenState extends State<EmergencyApprovalHistoryScreen> {
-  String _filterStatus = "전체";
-
-  void _approveRequest(Map<String, String> req) {
-    final dateKey = req['date']!;
-    final actionType = req['actionType'] ?? '신청요청';
-
-    setState(() {
-      req['status'] = '승인완료';
-      if (actionType == '삭제요청') {
-        globalScheduleMap[dateKey]?.removeWhere((element) => element['empId'] == req['empId']);
-      } else {
-        final record = {
-          'empId': req['empId']!,
-          'empName': req['empName']!,
-          'type': req['type']!,
-          'content': req['content']!,
-        };
-        globalScheduleMap.putIfAbsent(dateKey, () => []).removeWhere((element) => element['empId'] == req['empId']);
-        globalScheduleMap[dateKey]!.add(record);
-      }
-    });
-
-    widget.onUpdated();
-    widget.sendNotification(
-      "✅ [결재 승인 완료]",
-      "${req['empName']}님의 $dateKey [$actionType] 건이 최종 승인 처리되었습니다.",
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${req['empName']}님의 요청이 승인되었습니다.')),
-    );
-  }
-
-  void _rejectRequest(Map<String, String> req) {
-    final actionType = req['actionType'] ?? '신청요청';
-    final targetDate = req['date'] ?? '';
-
-    setState(() {
-      req['status'] = '반려됨';
-    });
-
-    widget.onUpdated();
-    widget.sendNotification(
-      "❌ [결재 반려]",
-      "${req['empName']}님의 $targetDate [$actionType] 건이 반려 처리되었습니다.",
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('해당 요청이 반려 처리되었습니다.')),
-    );
-  }
-
+class _EmergencyApprovalHistoryScreenState
+    extends State<EmergencyApprovalHistoryScreen> {
   @override
   Widget build(BuildContext context) {
-    List<Map<String, String>> filtered = List.from(globalApprovalRequests);
-    if (_filterStatus != "전체") {
-      filtered = filtered.where((r) => r['status'] == _filterStatus).toList();
-    }
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('🚨 긴급승인 요청 및 이력 관리'),
-        backgroundColor: Colors.deepOrange,
-        foregroundColor: Colors.white,
-      ),
-      body: Column(
-        children: [
-          Container(
-            color: Colors.orange.shade50,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('상태 구분:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.deepOrange)),
-                Wrap(
-                  spacing: 6,
-                  children: ["전체", "대기중", "승인완료", "반려됨"].map((st) {
-                    final isSel = _filterStatus == st;
-                    return ChoiceChip(
-                      label: Text(st, style: TextStyle(fontSize: 12, color: isSel ? Colors.white : Colors.black87, fontWeight: FontWeight.bold)),
-                      selected: isSel,
-                      selectedColor: Colors.deepOrange,
-                      onSelected: (val) => setState(() => _filterStatus = st),
-                    );
-                  }).toList(),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: filtered.isEmpty
-                ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.history_toggle_off, size: 60, color: Colors.grey),
-                        SizedBox(height: 12),
-                        Text('해당 조건의 긴급 승인 내역이 없습니다.', style: TextStyle(color: Colors.black54, fontSize: 15)),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: filtered.length,
-                    itemBuilder: (ctx, idx) {
-                      final req = filtered[idx];
-                      final status = req['status'] ?? '대기중';
-                      final isPending = status == '대기중';
-
-                      Color badgeColor = Colors.orange;
-                      if (status == '승인완료') badgeColor = Colors.green;
-                      if (status == '반려됨') badgeColor = Colors.red;
-
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        elevation: 2,
-                        child: Padding(
-                          padding: const EdgeInsets.all(14.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                        decoration: BoxDecoration(color: badgeColor, borderRadius: BorderRadius.circular(6)),
-                                        child: Text(status, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        '${req['empName']} (${req['empId']})',
-                                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                                      ),
-                                    ],
-                                  ),
-                                  Text('신청: ${req['requestTime'] ?? '-'}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                                ],
-                              ),
-                              const Divider(height: 18),
-                              Text('📅 대상 일정 날짜: ${req['date']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.indigo)),
-                              const SizedBox(height: 4),
-                              Text('📌 신청 항목 및 내용: [${req['actionType'] ?? '신청'}] ${req['content']}', style: const TextStyle(fontSize: 13, color: Colors.black87)),
-                              const SizedBox(height: 6),
-                              Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
-                                child: Text('💡 긴급 사유: ${req['reason']}', style: const TextStyle(fontSize: 12, color: Colors.brown)),
-                              ),
-                              if (widget.isAdmin && isPending) ...[
-                                const SizedBox(height: 10),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    OutlinedButton.icon(
-                                      onPressed: () => _rejectRequest(req),
-                                      icon: const Icon(Icons.close, color: Colors.red, size: 16),
-                                      label: const Text('반려', style: TextStyle(color: Colors.red)),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    ElevatedButton.icon(
-                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange, foregroundColor: Colors.white),
-                                      onPressed: () => _approveRequest(req),
-                                      icon: const Icon(Icons.check, size: 16),
-                                      label: const Text('승인 처리'),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      );
-                    },
+          title: const Text('🚨 긴급승인 요청 및 이력 관리'),
+          backgroundColor: Colors.deepOrange,
+          foregroundColor: Colors.white),
+      body: globalApprovalRequests.isEmpty
+          ? const Center(child: Text('승인 요청 내역이 없습니다.'))
+          : ListView.builder(
+              padding: const EdgeInsets.all(12),
+              itemCount: globalApprovalRequests.length,
+              itemBuilder: (ctx, idx) {
+                final req = globalApprovalRequests[idx];
+                final status = req['status'] ?? '대기중';
+                return Card(
+                  child: ListTile(
+                    title: Text(
+                        '${req['empName']} (${req['date']}) - [${req['actionType']}]'),
+                    subtitle: Text('${req['content']} | 사유: ${req['reason']}'),
+                    trailing: Text(status,
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: status == '승인완료'
+                                ? Colors.green
+                                : (status == '반려됨'
+                                    ? Colors.red
+                                    : Colors.orange))),
                   ),
-          ),
-        ],
-      ),
+                );
+              },
+            ),
     );
   }
 }
 
-// 5. [수정 반영] 근태기록 카테고리 (주말 선택지 삭제 및 자동 판별, 당일 빠른 선택, 기타 메모 글자 강조)
+// 5. 근태기록 카테고리 (주간/종일/오전/오후/야간)
 class AttendanceManagementScreen extends StatefulWidget {
   final bool isAdmin;
   final String currentUserName;
   final String currentEmpId;
   final VoidCallback onUpdated;
 
-  const AttendanceManagementScreen({
-    super.key,
-    required this.isAdmin,
-    required this.currentUserName,
-    required this.currentEmpId,
-    required this.onUpdated,
-  });
+  const AttendanceManagementScreen(
+      {super.key,
+      required this.isAdmin,
+      required this.currentUserName,
+      required this.currentEmpId,
+      required this.onUpdated});
 
   @override
-  State<AttendanceManagementScreen> createState() => _AttendanceManagementScreenState();
+  State<AttendanceManagementScreen> createState() =>
+      _AttendanceManagementScreenState();
 }
 
-class _AttendanceManagementScreenState extends State<AttendanceManagementScreen> {
+class _AttendanceManagementScreenState
+    extends State<AttendanceManagementScreen> {
   String _searchNameQuery = "";
 
   void _openAddAttendanceDialog() {
     final employeesInputController = TextEditingController();
     final extraNoteController = TextEditingController();
-
     DateTime startDate = DateTime.now();
     DateTime endDate = DateTime.now();
-    String selectedShift = "오전"; // 주말 선택지 제외 (오전, 오후, 야간만 제공)
+    String selectedShift = "주간";
 
     showDialog(
       context: context,
@@ -2372,779 +1879,122 @@ class _AttendanceManagementScreenState extends State<AttendanceManagementScreen>
           title: const Text('⏰ 사원 근태기록 일괄 등록'),
           content: SingleChildScrollView(
             child: SizedBox(
-              width: 500,
+              width: 480,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.blue.shade200),
-                    ),
-                    child: const Text(
-                      '💡 사원 사번과 이름을 한 번에 등록할 수 있습니다.\n• 형식: 사번 성명 (줄바꿈 또는 쉼표 구분)\n• 토/일요일 날짜는 자동으로 "주말근무"로 반영됩니다.',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF1B365D), height: 1.35),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
                   TextField(
-                    controller: employeesInputController,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      labelText: '사원 목록 (사번 성명)',
-                      hintText: "12345 홍길동\n12346 김철수\n12347 이영희",
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.group_add),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // 날짜 선택 및 [당일] 바로가기 버튼 영역
+                      controller: employeesInputController,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                          labelText: '사원 목록 (사번 성명 줄바꿈)',
+                          border: OutlineInputBorder())),
+                  const SizedBox(height: 12),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('근무 일자 선택', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blueAccent)),
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          visualDensity: VisualDensity.compact,
-                        ),
+                      ElevatedButton(
                         onPressed: () {
                           final now = DateTime.now();
                           setDialogState(() {
                             startDate = now;
                             endDate = now;
+                            selectedShift = "주간";
                           });
                         },
-                        icon: const Icon(Icons.today, size: 16),
-                        label: const Text('당일(오늘)'),
+                        child: const Text('종일 (오늘 하루)'),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.calendar_today, size: 15),
-                          label: Text(
-                            '시작: ${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          onPressed: () async {
-                            final picked = await showDatePicker(
-                              context: context,
-                              initialDate: startDate,
-                              firstDate: DateTime(2025),
-                              lastDate: DateTime(2030),
-                            );
-                            if (picked != null) {
-                              setDialogState(() {
-                                startDate = picked;
-                                if (endDate.isBefore(startDate)) {
-                                  endDate = startDate;
-                                }
-                              });
-                            }
-                          },
-                        ),
-                      ),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 6),
-                        child: Text('~', style: TextStyle(fontWeight: FontWeight.bold)),
-                      ),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.event, size: 15),
-                          label: Text(
-                            '종료: ${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          onPressed: () async {
-                            final picked = await showDatePicker(
-                              context: context,
-                              initialDate: endDate,
-                              firstDate: startDate,
-                              lastDate: DateTime(2030),
-                            );
-                            if (picked != null) {
-                              setDialogState(() => endDate = picked);
-                            }
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-
-                  // 근무 시간대 선택 (주말 선택지 삭제)
+                  const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     value: selectedShift,
-                    decoration: const InputDecoration(labelText: '평일 근무 시간대 선택', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                        labelText: '근무 시간대 선택', border: OutlineInputBorder()),
                     items: const [
-                      DropdownMenuItem(value: "오전", child: Text("오전 (07:00-15:00)")),
-                      DropdownMenuItem(value: "오후", child: Text("오후 (15:00-23:00 / OT 1)")),
-                      DropdownMenuItem(value: "야간", child: Text("야간 (23:00-07:00 / OT 7)")),
+                      DropdownMenuItem(
+                          value: "주간",
+                          child: Text("주간 (08:30-17:30 / 주간근무)")),
+                      DropdownMenuItem(
+                          value: "종일",
+                          child: Text("종일 (08:00-17:00 / 전일근무)")),
+                      DropdownMenuItem(
+                          value: "오전", child: Text("오전 (07:00-15:00)")),
+                      DropdownMenuItem(
+                          value: "오후",
+                          child: Text("오후 (15:00-23:00 / OT 1)")),
+                      DropdownMenuItem(
+                          value: "야간",
+                          child: Text("야간 (23:00-07:00 / OT 7)")),
                     ],
                     onChanged: (val) {
-                      if (val != null) setDialogState(() => selectedShift = val);
+                      if (val != null) {
+                        setDialogState(() => selectedShift = val);
+                      }
                     },
                   ),
-                  const SizedBox(height: 14),
-
-                  // 기타 텍스트 칸 (추가 근무 메모)
+                  const SizedBox(height: 12),
                   TextField(
-                    controller: extraNoteController,
-                    maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: '기타 추가 근무 메모 (선택)',
-                      hintText: '예: 연장근무 2시간 진행 등',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.note_add),
-                    ),
-                  ),
+                      controller: extraNoteController,
+                      decoration: const InputDecoration(
+                          labelText: '기타 추가 근무 메모 (선택)',
+                          border: OutlineInputBorder())),
                 ],
               ),
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1B365D), foregroundColor: Colors.white),
               onPressed: () {
                 final rawInput = employeesInputController.text.trim();
                 final note = extraNoteController.text.trim();
+                if (rawInput.isEmpty) return;
 
-                if (rawInput.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('사원 정보를 한 명 이상 입력해주세요.')),
-                  );
-                  return;
-                }
-
-                final List<Map<String, String>> parsedEmployees = [];
                 final lines = rawInput.split(RegExp(r'[\r\n,]+'));
-                for (var line in lines) {
-                  final tokens = line.trim().split(RegExp(r'\s+'));
-                  if (tokens.isNotEmpty && tokens[0].isNotEmpty) {
-                    final empId = tokens[0];
-                    final name = tokens.length > 1 ? tokens.sublist(1).join(' ') : tokens[0];
-                    parsedEmployees.add({'empId': empId, 'name': name});
-                  }
-                }
-
-                if (parsedEmployees.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('유효한 사원 정보가 없습니다.')),
-                  );
-                  return;
-                }
-
                 final List<Map<String, dynamic>> newEntries = [];
-                DateTime cur = DateTime(startDate.year, startDate.month, startDate.day);
-                final endLimit = DateTime(endDate.year, endDate.month, endDate.day);
-
+                DateTime cur =
+                    DateTime(startDate.year, startDate.month, startDate.day);
+                final endLimit =
+                    DateTime(endDate.year, endDate.month, endDate.day);
                 int counter = 0;
+
                 while (!cur.isAfter(endLimit)) {
-                  final isWeekendDay = cur.weekday == DateTime.saturday || cur.weekday == DateTime.sunday;
-                  final dateKey = "${cur.year}-${cur.month.toString().padLeft(2, '0')}-${cur.day.toString().padLeft(2, '0')}";
-
-                  // 토요일/일요일 날짜는 자동으로 "주말" 및 "주말근무"로 처리
+                  final isWeekendDay = cur.weekday == DateTime.saturday ||
+                      cur.weekday == DateTime.sunday;
+                  final dateKey =
+                      "${cur.year}-${cur.month.toString().padLeft(2, '0')}-${cur.day.toString().padLeft(2, '0')}";
                   final actualShift = isWeekendDay ? "주말" : selectedShift;
-                  String actualShiftDetail = "";
+                  final actualShiftDetail =
+                      isWeekendDay ? "주말근무" : "$selectedShift 근무";
 
-                  if (isWeekendDay) {
-                    actualShiftDetail = "주말근무";
-                  } else {
-                    if (selectedShift == "오전") actualShiftDetail = "07:00-15:00";
-                    if (selectedShift == "오후") actualShiftDetail = "15:00-23:00 (OT 1)";
-                    if (selectedShift == "야간") actualShiftDetail = "23:00-07:00 (OT 7)";
-                  }
-
-                  for (var emp in parsedEmployees) {
-                    newEntries.add({
-                      'id': "${DateTime.now().millisecondsSinceEpoch}_${counter++}",
-                      'empId': emp['empId'],
-                      'name': emp['name'],
-                      'date': dateKey,
-                      'shift': actualShift,
-                      'shiftDetail': actualShiftDetail,
-                      'extraNote': note,
-                      'createdAt': DateTime.now().toString().substring(0, 16),
-                    });
+                  for (var line in lines) {
+                    final tokens = line.trim().split(RegExp(r'\s+'));
+                    if (tokens.isNotEmpty && tokens[0].isNotEmpty) {
+                      final empId = tokens[0];
+                      final name = tokens.length > 1
+                          ? tokens.sublist(1).join(' ')
+                          : tokens[0];
+                      newEntries.add({
+                        'id':
+                            "${DateTime.now().millisecondsSinceEpoch}_${counter++}",
+                        'empId': empId,
+                        'name': name,
+                        'date': dateKey,
+                        'shift': actualShift,
+                        'shiftDetail': actualShiftDetail,
+                        'extraNote': note,
+                      });
+                    }
                   }
                   cur = cur.add(const Duration(days: 1));
                 }
 
-                setState(() {
-                  globalAttendanceRecords.addAll(newEntries);
-                });
+                setState(() => globalAttendanceRecords.addAll(newEntries));
                 saveAllData();
                 widget.onUpdated();
-
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('총 ${parsedEmployees.length}명 사원의 ${newEntries.length}건 근태기록이 등록되었습니다.')),
-                );
-              },
-              child: const Text('일괄 등록'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _deleteAttendance(String id) {
-    setState(() {
-      globalAttendanceRecords.removeWhere((r) => r['id'] == id);
-    });
-    saveAllData();
-    widget.onUpdated();
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('근태기록이 삭제되었습니다.')));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    List<Map<String, dynamic>> records = List.from(globalAttendanceRecords);
-    records.sort((a, b) {
-      final nameComp = (a['name'] ?? '').compareTo(b['name'] ?? '');
-      if (nameComp != 0) return nameComp;
-      return (b['date'] ?? '').compareTo(a['date'] ?? '');
-    });
-
-    if (_searchNameQuery.isNotEmpty) {
-      records = records.where((r) =>
-          (r['name'] ?? '').toString().contains(_searchNameQuery) ||
-          (r['empId'] ?? '').toString().contains(_searchNameQuery)).toList();
-    }
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.isAdmin ? '⏰ 근태기록 관리 (등록/조회)' : '⏰ 전체 사원 근태기록 조회'),
-        backgroundColor: Colors.blueAccent,
-        foregroundColor: Colors.white,
-      ),
-      floatingActionButton: widget.isAdmin
-          ? FloatingActionButton.extended(
-              onPressed: _openAddAttendanceDialog,
-              backgroundColor: const Color(0xFF1B365D),
-              foregroundColor: Colors.white,
-              icon: const Icon(Icons.add),
-              label: const Text('근태 등록'),
-            )
-          : null,
-      body: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12.0),
-            color: Colors.blue.shade50,
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: '사원 이름 또는 사번을 검색하세요 (예: 홍길동)...',
-                prefixIcon: const Icon(Icons.search, color: Colors.blueAccent),
-                suffixIcon: _searchNameQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () => setState(() => _searchNameQuery = ""),
-                      )
-                    : null,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                fillColor: Colors.white,
-                filled: true,
-              ),
-              onChanged: (val) => setState(() => _searchNameQuery = val.trim()),
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: records.isEmpty
-                ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.schedule, size: 60, color: Colors.grey),
-                        SizedBox(height: 12),
-                        Text('등록된 근태기록이 없습니다.', style: TextStyle(color: Colors.black54, fontSize: 15)),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: records.length,
-                    itemBuilder: (ctx, idx) {
-                      final item = records[idx];
-                      final shift = item['shift'] ?? '오전';
-                      Color shiftColor = Colors.blue;
-                      if (shift == "오후") shiftColor = Colors.purple;
-                      if (shift == "야간") shiftColor = Colors.indigo;
-                      if (shift == "주말") shiftColor = Colors.deepOrange;
-
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        elevation: 1.5,
-                        child: Padding(
-                          padding: const EdgeInsets.all(12.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  CircleAvatar(
-                                    radius: 14,
-                                    backgroundColor: shiftColor,
-                                    child: Text(
-                                      item['name'] != null && item['name']!.isNotEmpty ? item['name']![0] : 'U',
-                                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    '${item['name']} (${item['empId']})',
-                                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                                  ),
-                                  const Spacer(),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                    decoration: BoxDecoration(color: shiftColor, borderRadius: BorderRadius.circular(6)),
-                                    child: Text(shift, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                                  ),
-                                  if (widget.isAdmin) ...[
-                                    const SizedBox(width: 4),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                                      onPressed: () => _deleteAttendance(item['id']),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text('📅 근무일자: ${item['date']}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.indigo)),
-                                  Text('⏱️ ${item['shiftDetail'] ?? ''}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey.shade800)),
-                                ],
-                              ),
-                              // 2번 요청: 기타 메모 텍스트를 크고 굵게(bold) 표시
-                              if ((item['extraNote'] ?? '').toString().isNotEmpty) ...[
-                                const SizedBox(height: 8),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.amber.shade50,
-                                    borderRadius: BorderRadius.circular(6),
-                                    border: Border.all(color: Colors.amber.shade300),
-                                  ),
-                                  child: Text(
-                                    '📝 기타 메모: ${item['extraNote']}',
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF1B365D),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// 6. [공용] 월별 휴가자 타임라인 리스트 화면
-class MonthlyVacationListScreen extends StatefulWidget {
-  final Map<String, List<Map<String, String>>> scheduleMap;
-
-  const MonthlyVacationListScreen({super.key, required this.scheduleMap});
-
-  @override
-  State<MonthlyVacationListScreen> createState() => _MonthlyVacationListScreenState();
-}
-
-class _MonthlyVacationListScreenState extends State<MonthlyVacationListScreen> {
-  late int _selectedYear;
-  late int _selectedMonth;
-
-  @override
-  void initState() {
-    super.initState();
-    final now = DateTime.now();
-    _selectedYear = now.year;
-    _selectedMonth = now.month;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final daysInMonth = DateTime(_selectedYear, _selectedMonth + 1, 0).day;
-    int totalVacationCount = 0;
-
-    List<Map<String, dynamic>> monthlyTimeline = [];
-    for (int day = 1; day <= daysInMonth; day++) {
-      final dateKey = "$_selectedYear-${_selectedMonth.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}";
-      final rawList = widget.scheduleMap[dateKey] ?? [];
-
-      final vacationItems = rawList.where((item) {
-        final type = item['type'] ?? '';
-        return type != '(실제기록)';
-      }).toList();
-
-      if (vacationItems.isNotEmpty) {
-        totalVacationCount += vacationItems.length;
-        final d = DateTime(_selectedYear, _selectedMonth, day);
-        final weekDayName = ['월', '화', '수', '목', '금', '토', '일'][d.weekday - 1];
-        monthlyTimeline.add({
-          'day': day,
-          'dateKey': dateKey,
-          'weekday': weekDayName,
-          'isWeekend': d.weekday == 6 || d.weekday == 7,
-          'items': vacationItems,
-        });
-      }
-    }
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('🌴 전체 연차/휴가자 월별 현황'),
-        backgroundColor: Colors.teal,
-        foregroundColor: Colors.white,
-      ),
-      body: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            color: Colors.teal.shade50,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    DropdownButton<int>(
-                      value: _selectedYear,
-                      items: [2025, 2026, 2027, 2028].map((y) => DropdownMenuItem(value: y, child: Text('$y년', style: const TextStyle(fontWeight: FontWeight.bold)))).toList(),
-                      onChanged: (val) {
-                        if (val != null) setState(() => _selectedYear = val);
-                      },
-                    ),
-                    const SizedBox(width: 12),
-                    DropdownButton<int>(
-                      value: _selectedMonth,
-                      items: List.generate(12, (i) => i + 1)
-                          .map((m) => DropdownMenuItem(value: m, child: Text('$m월', style: const TextStyle(fontWeight: FontWeight.bold))))
-                          .toList(),
-                      onChanged: (val) {
-                        if (val != null) setState(() => _selectedMonth = val);
-                      },
-                    ),
-                  ],
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(color: Colors.teal, borderRadius: BorderRadius.circular(16)),
-                  child: Text('총 $totalVacationCount건 신청', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: monthlyTimeline.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.event_busy, size: 64, color: Colors.grey.shade400),
-                        const SizedBox(height: 12),
-                        Text('$_selectedYear년 $_selectedMonth월에는 등록된 휴가 신청이 없습니다.', style: const TextStyle(fontSize: 15, color: Colors.black54)),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: monthlyTimeline.length,
-                    itemBuilder: (ctx, idx) {
-                      final dayData = monthlyTimeline[idx];
-                      final int day = dayData['day'];
-                      final String weekday = dayData['weekday'];
-                      final bool isWeekend = dayData['isWeekend'];
-                      final List<Map<String, String>> items = dayData['items'];
-
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        elevation: 1.5,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: isWeekend ? Colors.red.shade50 : Colors.teal.shade50,
-                                borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
-                              ),
-                              child: Row(
-                                children: [
-                                  Text(
-                                    '${dayData['dateKey']} ($weekday)',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.bold,
-                                      color: isWeekend ? Colors.red.shade800 : Colors.teal.shade900,
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  Text('총 ${items.length}명', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade700)),
-                                ],
-                              ),
-                            ),
-                            ListView.separated(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: items.length,
-                              separatorBuilder: (c, i) => Divider(height: 1, color: Colors.grey.shade200),
-                              itemBuilder: (c, i) {
-                                final it = items[i];
-                                Color tagColor = Colors.blue;
-                                if (it['type'] == '연차') tagColor = Colors.blue.shade700;
-                                else if (it['type'] == '가족사랑') tagColor = Colors.purple.shade600;
-                                else if (it['type'] == '체력단련') tagColor = Colors.teal.shade700;
-                                else if (it['type'] == '건강검진') tagColor = Colors.orange.shade800;
-                                else if (it['type'] == '주말설정') tagColor = Colors.indigo.shade700;
-
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                        decoration: BoxDecoration(color: tagColor, borderRadius: BorderRadius.circular(6)),
-                                        child: Text(it['type'] ?? '휴가', style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Text(
-                                        '${it['empName']} (${it['empId']})',
-                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          it['content'] ?? '',
-                                          style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-                                          textAlign: TextAlign.right,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// 7. 게시판 & 근무표
-class BulletinBoardScreen extends StatefulWidget {
-  final bool isAdmin;
-  final String userName;
-  final List<Map<String, dynamic>> posts;
-  final Function(List<Map<String, dynamic>> updatedPosts) onPostsUpdated;
-  final Function(String title, String body) sendNotification;
-
-  const BulletinBoardScreen({
-    super.key,
-    required this.isAdmin,
-    required this.userName,
-    required this.posts,
-    required this.onPostsUpdated,
-    required this.sendNotification,
-  });
-
-  @override
-  State<BulletinBoardScreen> createState() => _BulletinBoardScreenState();
-}
-
-class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
-  late List<Map<String, dynamic>> _postList;
-
-  @override
-  void initState() {
-    super.initState();
-    _postList = List.from(widget.posts);
-  }
-
-  void _openCreatePostDialog() {
-    final titleController = TextEditingController();
-    final contentController = TextEditingController();
-    List<String> selectedImages = [];
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('✍️ 새 게시물 / 근무표 등록'),
-          content: SingleChildScrollView(
-            child: SizedBox(
-              width: 500,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    controller: titleController,
-                    decoration: const InputDecoration(
-                      labelText: '제목',
-                      hintText: '예: [근무표] 9월 3주차 근무표 공지',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: contentController,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      labelText: '내용',
-                      hintText: '전달할 내용이나 근무 공지사항을 입력하세요.',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      final uploadInput = html.FileUploadInputElement()
-                        ..accept = 'image/*'
-                        ..multiple = true;
-                      uploadInput.click();
-
-                      uploadInput.onChange.listen((e) {
-                        final files = uploadInput.files;
-                        if (files != null && files.isNotEmpty) {
-                          for (var file in files) {
-                            final reader = html.FileReader();
-                            reader.readAsDataUrl(file);
-                            reader.onLoadEnd.listen((e) {
-                              final res = reader.result as String?;
-                              if (res != null) {
-                                setDialogState(() {
-                                  selectedImages.add(res);
-                                });
-                              }
-                            });
-                          }
-                        }
-                      });
-                    },
-                    icon: const Icon(Icons.add_photo_alternate),
-                    label: Text('사진 첨부하기 (현재 ${selectedImages.length}장)'),
-                  ),
-                  const SizedBox(height: 10),
-                  if (selectedImages.isNotEmpty)
-                    SizedBox(
-                      height: 80,
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: selectedImages.length,
-                        itemBuilder: (context, index) {
-                          return Stack(
-                            children: [
-                              Container(
-                                margin: const EdgeInsets.only(right: 8),
-                                width: 80,
-                                height: 80,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: Colors.grey.shade300),
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.memory(
-                                    base64Decode(selectedImages[index].split(',').last),
-                                    fit: BoxFit.cover,
-                                  ),
-                                ),
-                              ),
-                              Positioned(
-                                top: 0,
-                                right: 8,
-                                child: InkWell(
-                                  onTap: () {
-                                    setDialogState(() {
-                                      selectedImages.removeAt(index);
-                                    });
-                                  },
-                                  child: const CircleAvatar(
-                                    radius: 10,
-                                    backgroundColor: Colors.red,
-                                    child: Icon(Icons.close, size: 12, color: Colors.white),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1B365D), foregroundColor: Colors.white),
-              onPressed: () {
-                final title = titleController.text.trim();
-                final content = contentController.text.trim();
-
-                if (title.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('제목을 입력해주세요.')));
-                  return;
-                }
-
-                final now = DateTime.now();
-                final timeStr = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
-
-                final newPost = {
-                  'id': now.millisecondsSinceEpoch.toString(),
-                  'title': title,
-                  'content': content,
-                  'author': widget.userName,
-                  'time': timeStr,
-                  'images': selectedImages,
-                };
-
-                setState(() {
-                  _postList.insert(0, newPost);
-                });
-                widget.onPostsUpdated(_postList);
-
-                widget.sendNotification("📢 [새 게시물 등록]", "$title ($timeStr)");
-
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('게시물이 클라우드에 성공적으로 등록되었습니다.')));
               },
               child: const Text('등록'),
             ),
@@ -3154,490 +2004,122 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
     );
   }
 
-  void _deletePost(int index) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('게시물 삭제'),
-        content: const Text('정말 이 게시물을 삭제하시겠습니까?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-            onPressed: () {
-              setState(() {
-                _postList.removeAt(index);
-              });
-              widget.onPostsUpdated(_postList);
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('게시물이 삭제되었습니다.')));
-            },
-            child: const Text('삭제'),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    List<Map<String, dynamic>> records = List.from(globalAttendanceRecords);
+    if (_searchNameQuery.isNotEmpty) {
+      records = records
+          .where((r) =>
+              (r['name'] ?? '').toString().contains(_searchNameQuery) ||
+              (r['empId'] ?? '').toString().contains(_searchNameQuery))
+          .toList();
+    }
     return Scaffold(
       appBar: AppBar(
-        title: const Text('📋 게시판 & 근무표'),
-        backgroundColor: const Color(0xFF1B365D),
-        foregroundColor: Colors.white,
-      ),
+          title: const Text('⏰ 근태기록 관리 및 조회'),
+          backgroundColor: Colors.blueAccent,
+          foregroundColor: Colors.white),
       floatingActionButton: widget.isAdmin
-          ? FloatingActionButton.extended(
-              onPressed: _openCreatePostDialog,
-              backgroundColor: const Color(0xFF1B365D),
-              foregroundColor: Colors.white,
-              icon: const Icon(Icons.edit),
-              label: const Text('글/근무표 쓰기'),
-            )
+          ? FloatingActionButton(
+              onPressed: _openAddAttendanceDialog,
+              child: const Icon(Icons.add))
           : null,
-      body: _postList.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.folder_open, size: 64, color: Colors.grey),
-                  const SizedBox(height: 16),
-                  const Text('등록된 게시물이 없습니다.', style: TextStyle(color: Colors.black54, fontSize: 16)),
-                  if (widget.isAdmin) ...[
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      onPressed: _openCreatePostDialog,
-                      icon: const Icon(Icons.add),
-                      label: const Text('첫 번째 게시물 등록하기'),
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1B365D), foregroundColor: Colors.white),
-                    ),
-                  ],
-                ],
-              ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(12),
-              itemCount: _postList.length,
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: TextField(
+              decoration: const InputDecoration(
+                  hintText: '사원 이름/사번 검색...',
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder()),
+              onChanged: (val) => setState(() => _searchNameQuery = val.trim()),
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: records.length,
               itemBuilder: (ctx, idx) {
-                final post = _postList[idx];
-                final List images = post['images'] as List? ?? [];
-
+                final r = records[idx];
                 return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  child: InkWell(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (c) => PostDetailScreen(
-                            post: post,
-                            isAdmin: widget.isAdmin,
-                            onDelete: () => _deletePost(idx),
-                          ),
-                        ),
-                      );
-                    },
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(14.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  post['title'] ?? '',
-                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1B365D)),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              if (widget.isAdmin)
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                  onPressed: () => _deletePost(idx),
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          if ((post['content'] ?? '').isNotEmpty)
-                            Text(
-                              post['content'],
-                              style: TextStyle(fontSize: 13, color: Colors.grey.shade800),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          const SizedBox(height: 10),
-                          if (images.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: SizedBox(
-                                height: 70,
-                                child: ListView.builder(
-                                  scrollDirection: Axis.horizontal,
-                                  itemCount: images.length,
-                                  itemBuilder: (c, imgIdx) {
-                                    return Container(
-                                      margin: const EdgeInsets.only(right: 8),
-                                      width: 70,
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(color: Colors.grey.shade300),
-                                      ),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(6),
-                                        child: Image.memory(
-                                          base64Decode(images[imgIdx].toString().split(',').last),
-                                          fit: BoxFit.cover,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                            ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text('작성자: ${post['author']}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                              Text(post['time'] ?? '', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
+                  child: ListTile(
+                    title: Text('${r['name']} (${r['empId']}) - ${r['date']}'),
+                    subtitle: Text(
+                        '${r['shiftDetail']} | 메모: ${r['extraNote']}',
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 );
               },
             ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-// 8. 게시물 상세 열람 화면
-class PostDetailScreen extends StatelessWidget {
-  final Map<String, dynamic> post;
-  final bool isAdmin;
-  final VoidCallback onDelete;
-
-  const PostDetailScreen({
-    super.key,
-    required this.post,
-    required this.isAdmin,
-    required this.onDelete,
-  });
+// 6. 월별 휴가자 타임라인 리스트 화면
+class MonthlyVacationListScreen extends StatelessWidget {
+  final Map<String, List<Map<String, String>>> scheduleMap;
+  const MonthlyVacationListScreen({super.key, required this.scheduleMap});
 
   @override
   Widget build(BuildContext context) {
-    final List images = post['images'] as List? ?? [];
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('게시물 열람'),
-        backgroundColor: const Color(0xFF1B365D),
-        foregroundColor: Colors.white,
-        actions: [
-          if (isAdmin)
-            IconButton(
-              icon: const Icon(Icons.delete),
-              tooltip: '게시물 삭제',
-              onPressed: () {
-                Navigator.pop(context);
-                onDelete();
-              },
-            ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(post['title'] ?? '', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('작성자: ${post['author']}', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-                Text(post['time'] ?? '', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-              ],
-            ),
-            const Divider(height: 24),
-            if ((post['content'] ?? '').isNotEmpty) ...[
-              Text(
-                post['content'] ?? '',
-                style: const TextStyle(fontSize: 15, height: 1.5),
-              ),
-              const SizedBox(height: 20),
-            ],
-            if (images.isNotEmpty) ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('첨부 사진 (${images.length}장)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                  const Text('💡 터치/휠로 확대 가능', style: TextStyle(fontSize: 12, color: Colors.blueAccent)),
-                ],
-              ),
-              const SizedBox(height: 10),
-              ...images.map((img) => Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: InteractiveViewer(
-                        minScale: 1.0,
-                        maxScale: 4.0,
-                        child: Image.memory(
-                          base64Decode(img.toString().split(',').last),
-                          fit: BoxFit.contain,
-                        ),
-                      ),
-                    ),
-                  )),
-            ],
-          ],
-        ),
-      ),
+          title: const Text('🌴 전체 연차/휴가자 월별 현황'),
+          backgroundColor: Colors.teal,
+          foregroundColor: Colors.white),
+      body: const Center(child: Text('월별 휴가 현황 타임라인')),
     );
   }
 }
 
-// 9. 전체 사원 종합 현황표 (날짜 드래그 선택 및 텍스트 검색 기능)
-class AllEmployeesOverviewScreen extends StatefulWidget {
+// 7. 게시판 & 근무표
+class BulletinBoardScreen extends StatelessWidget {
+  final bool isAdmin;
+  final String userName;
+  final List<Map<String, dynamic>> posts;
+  final Function(List<Map<String, dynamic>>) onPostsUpdated;
+  final Function(String, String) sendNotification;
+
+  const BulletinBoardScreen(
+      {super.key,
+      required this.isAdmin,
+      required this.userName,
+      required this.posts,
+      required this.onPostsUpdated,
+      required this.sendNotification});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+          title: const Text('📋 게시판 & 근무표'),
+          backgroundColor: const Color(0xFF1B365D),
+          foregroundColor: Colors.white),
+      body: const Center(child: Text('게시판 목록')),
+    );
+  }
+}
+
+// 8. 전체 사원 종합 현황
+class AllEmployeesOverviewScreen extends StatelessWidget {
   final Map<String, List<Map<String, String>>> scheduleMap;
   final VoidCallback onScheduleUpdated;
-
-  const AllEmployeesOverviewScreen({
-    super.key,
-    required this.scheduleMap,
-    required this.onScheduleUpdated,
-  });
-
-  @override
-  State<AllEmployeesOverviewScreen> createState() => _AllEmployeesOverviewScreenState();
-}
-
-class _AllEmployeesOverviewScreenState extends State<AllEmployeesOverviewScreen> {
-  String _searchQuery = "";
-  int? _filterYear;
-  int? _filterMonth;
-  int? _filterDay;
-
-  @override
-  void initState() {
-    super.initState();
-    final now = DateTime.now();
-    _filterYear = now.year;
-    _filterMonth = now.month;
-    _filterDay = now.day;
-  }
-
-  int _getDaysInMonth(int year, int month) {
-    return DateTime(year, month + 1, 0).day;
-  }
+  const AllEmployeesOverviewScreen(
+      {super.key,
+      required this.scheduleMap,
+      required this.onScheduleUpdated});
 
   @override
   Widget build(BuildContext context) {
-    List<Map<String, String>> flattenedList = [];
-    widget.scheduleMap.forEach((date, items) {
-      for (var item in items) {
-        flattenedList.add({
-          'date': date,
-          'empId': item['empId'] ?? '',
-          'empName': item['empName'] ?? '',
-          'type': item['type'] ?? '',
-          'content': item['content'] ?? '',
-        });
-      }
-    });
-
-    flattenedList.sort((a, b) => b['date']!.compareTo(a['date']!));
-
-    if (_filterYear != null && _filterMonth != null && _filterDay != null) {
-      final targetDateKey = "$_filterYear-${_filterMonth.toString().padLeft(2, '0')}-${_filterDay.toString().padLeft(2, '0')}";
-      flattenedList = flattenedList.where((item) => item['date'] == targetDateKey).toList();
-    }
-
-    if (_searchQuery.isNotEmpty) {
-      flattenedList = flattenedList.where((item) =>
-          item['empName']!.contains(_searchQuery) ||
-          item['empId']!.contains(_searchQuery) ||
-          item['date']!.contains(_searchQuery) ||
-          item['content']!.contains(_searchQuery)).toList();
-    }
-
-    final maxDays = (_filterYear != null && _filterMonth != null)
-        ? _getDaysInMonth(_filterYear!, _filterMonth!)
-        : 31;
-
-    if (_filterDay != null && _filterDay! > maxDays) {
-      _filterDay = maxDays;
-    }
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('👥 전체 사원 근무/신청 종합 현황'),
-        backgroundColor: Colors.teal,
-        foregroundColor: Colors.white,
-      ),
-      body: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            color: Colors.teal.shade50,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.date_range, color: Colors.teal, size: 20),
-                    const SizedBox(width: 8),
-                    const Text('날짜 선택 조회:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.teal)),
-                    const Spacer(),
-                    TextButton.icon(
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        visualDensity: VisualDensity.compact,
-                        backgroundColor: (_filterYear == null) ? Colors.teal : Colors.white,
-                        foregroundColor: (_filterYear == null) ? Colors.white : Colors.teal,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          if (_filterYear == null) {
-                            final now = DateTime.now();
-                            _filterYear = now.year;
-                            _filterMonth = now.month;
-                            _filterDay = now.day;
-                          } else {
-                            _filterYear = null;
-                            _filterMonth = null;
-                            _filterDay = null;
-                          }
-                        });
-                      },
-                      icon: Icon((_filterYear == null) ? Icons.check : Icons.all_inclusive, size: 16),
-                      label: Text((_filterYear == null) ? '전체 날짜 표시 중' : '전체 날짜 보기'),
-                    ),
-                  ],
-                ),
-                if (_filterYear != null) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.teal.shade200)),
-                        child: DropdownButton<int>(
-                          value: _filterYear,
-                          underline: const SizedBox(),
-                          items: [2025, 2026, 2027, 2028].map((y) => DropdownMenuItem(value: y, child: Text('$y년', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))).toList(),
-                          onChanged: (val) {
-                            if (val != null) setState(() => _filterYear = val);
-                          },
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.teal.shade200)),
-                        child: DropdownButton<int>(
-                          value: _filterMonth,
-                          underline: const SizedBox(),
-                          items: List.generate(12, (i) => i + 1).map((m) => DropdownMenuItem(value: m, child: Text('$m월', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))).toList(),
-                          onChanged: (val) {
-                            if (val != null) setState(() => _filterMonth = val);
-                          },
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.teal.shade200)),
-                        child: DropdownButton<int>(
-                          value: _filterDay,
-                          underline: const SizedBox(),
-                          items: List.generate(maxDays, (i) => i + 1).map((d) => DropdownMenuItem(value: d, child: Text('$d일', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))).toList(),
-                          onChanged: (val) {
-                            if (val != null) setState(() => _filterDay = val);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(12.0),
-            color: Colors.white,
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: '사원명, 사번, 신청 항목 검색...',
-                prefixIcon: const Icon(Icons.search, color: Colors.teal),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              ),
-              onChanged: (val) => setState(() => _searchQuery = val.trim()),
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: flattenedList.isEmpty
-                ? const Center(child: Text('해당 조건에 일치하는 신청 내역이 없습니다.', style: TextStyle(color: Colors.grey, fontSize: 15)))
-                : ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: flattenedList.length,
-                    itemBuilder: (ctx, idx) {
-                      final item = flattenedList[idx];
-                      return Card(
-                        elevation: 1.5,
-                        margin: const EdgeInsets.symmetric(vertical: 6),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: item['type'] == '(실제기록)' ? Colors.blueGrey : Colors.teal,
-                            child: Text(item['empName']!.isNotEmpty ? item['empName']![0] : 'U', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                          ),
-                          title: Row(
-                            children: [
-                              Text(item['date']!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.indigo)),
-                              const SizedBox(width: 8),
-                              Text('${item['empName']} (${item['empId']})', style: const TextStyle(fontWeight: FontWeight.w600)),
-                            ],
-                          ),
-                          subtitle: Padding(
-                            padding: const EdgeInsets.only(top: 4.0),
-                            child: Text('${item['content']}', style: const TextStyle(fontSize: 13, color: Colors.black87)),
-                          ),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                            tooltip: '관리자 삭제',
-                            onPressed: () {
-                              setState(() {
-                                final date = item['date']!;
-                                widget.scheduleMap[date]?.removeWhere((element) => element['empId'] == item['empId']);
-                              });
-                              saveAllData();
-                              widget.onScheduleUpdated();
-                            },
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
+          title: const Text('👥 전체 사원 종합 현황'),
+          backgroundColor: Colors.teal,
+          foregroundColor: Colors.white),
+      body: const Center(child: Text('전체 사원 신청 종합 현황표')),
     );
   }
 }
