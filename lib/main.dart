@@ -1360,7 +1360,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     "${widget.userName}님이 $dateKey 일정 삭제를 승인 요청했습니다.");
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('관리자에게 삭제 승인 요청이 전송되었습니다.')));
+                    const SnackBar(content: Text('관리자에게 승인 요청이 전송되었습니다.')));
               },
               child: const Text('삭제 승인 요청'),
             ),
@@ -2775,7 +2775,7 @@ class _EmergencyApprovalHistoryScreenState
   }
 }
 
-// 5. 근태기록 관리 및 조회 화면 (관리자 삭제 기능 추가)
+// 5. 근태기록 관리 및 조회 화면 (관리자 삭제 기능 포함)
 class AttendanceManagementScreen extends StatefulWidget {
   final bool isAdmin;
   final String currentUserName;
@@ -3040,7 +3040,6 @@ class _AttendanceManagementScreenState
     );
   }
 
-  // 관리자 근태 기록 개별 삭제 함수
   void _confirmDeleteAttendance(int index) {
     showDialog(
       context: context,
@@ -3191,6 +3190,7 @@ class MonthlyVacationListScreen extends StatelessWidget {
   }
 }
 
+// 7. 사내 게시판 & 근무표 (컴파일 오류 완전 해결본)
 class BulletinBoardScreen extends StatefulWidget {
   final bool isAdmin;
   final String userName;
@@ -3408,7 +3408,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                                               children: [
                                                 Icon(Icons.zoom_in, color: Colors.white, size: 12),
                                                 SizedBox(width: 2),
-                                                Text('확대', style: TextStyle(color: Colors.white, fontSize: 11)),
+                                                Text('확대', style: TextStyle(color: Colors.white, fontSize: 10)),
                                               ],
                                             ),
                                           ),
@@ -3438,10 +3438,6 @@ class AllEmployeesOverviewScreen extends StatelessWidget {
       {super.key,
       required this.scheduleMap,
       required this.onScheduleUpdated});
-
-  @override
-  Widget build(BuildContext context) {
-    }
 
   @override
   Widget build(BuildContext context) {
