@@ -38,7 +38,7 @@ Future<String> compressAndConvertImage(html.File file) async {
 
   int width = img.width ?? 800;
   int height = img.height ?? 600;
-  const maxDim = 800; // 용량 폭탄 방지를 위해 최대 800px로 압축
+  const maxDim = 800;
 
   if (width > maxDim || height > maxDim) {
     if (width > height) {
@@ -57,7 +57,6 @@ Future<String> compressAndConvertImage(html.File file) async {
   return canvas.toDataUrl('image/jpeg', 0.6);
 }
 
-// 게시판/공지 전용 서버 강제 동기화 함수 (데이터 증발 원천 차단)
 Future<void> saveBoardAndNoticeToServer(String notice, List<Map<String, dynamic>> posts) async {
   try {
     final postsJson = jsonEncode(posts);
@@ -764,7 +763,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         }
       } catch (_) {}
 
-      // 게시판 및 근무표 서버 동기화 강화
       try {
         final boardReq = await html.HttpRequest.request(
           '$firestoreBaseUrl/board?key=$firestoreApiKey',
@@ -1021,7 +1019,6 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 다중 사진 게시글 작성 (서버 강제 동기화 적용)
   void _openCreatePostDialog() {
     final titleCtrl = TextEditingController();
     final contentCtrl = TextEditingController();
@@ -1167,7 +1164,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                                     },
                                     child: const CircleAvatar(
                                       radius: 10,
-                                      backgroundColor: Colors.black70,
+                                      backgroundColor: Colors.black54,
                                       child: Icon(Icons.close, size: 14, color: Colors.white),
                                     ),
                                   ),
@@ -1217,7 +1214,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                       setState(() {
                         _posts.insert(0, newPost);
                       });
-                      saveBoardAndNoticeToServer(_notice, _posts); // 서버에 즉시 영구 저장
+                      saveBoardAndNoticeToServer(_notice, _posts);
                       _sendWebNotification("📢 [새 게시글/근무표 등록]", t.isNotEmpty ? t : '새 근무표가 등록되었습니다.');
                       Navigator.pop(ctx);
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -3178,7 +3175,6 @@ class BulletinBoardScreen extends StatefulWidget {
 }
 
 class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
-  // 별도 게시판 화면 내 게시글 삭제 확인 팝업
   void _confirmDeletePostInBulletin(int idx) {
     showDialog(
       context: context,
@@ -3376,7 +3372,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                                               children: [
                                                 Icon(Icons.zoom_in, color: Colors.white, size: 12),
                                                 SizedBox(width: 2),
-                                                Text('확대', style: TextStyle(color: Colors.white, fontSize: 11)),
+                                                Text('확대', style: TextStyle(color: Colors.white, fontSize: 10)),
                                               ],
                                             ),
                                           ),
