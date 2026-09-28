@@ -1164,7 +1164,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                                     },
                                     child: const CircleAvatar(
                                       radius: 10,
-                                      backgroundColor: Colors.black70,
+                                      backgroundColor: Colors.black54,
                                       child: Icon(Icons.close, size: 14, color: Colors.white),
                                     ),
                                   ),
