@@ -760,6 +760,33 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     }
   }
 
+  void _confirmDeletePost(int index) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('게시글 삭제 확인'),
+        content: const Text('해당 게시글/근무표를 정말로 삭제하시겠습니까? 삭제 후에는 복구할 수 없습니다.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () {
+              setState(() {
+                _posts.removeAt(index);
+              });
+              _saveBoardToFirebase();
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('게시글이 삭제되었습니다.'), backgroundColor: Colors.redAccent),
+              );
+            },
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _safeCheckNotificationPermission() {
     try {
       if (html.Notification.permission == 'granted') {
@@ -959,50 +986,11 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
-  // 게시글 삭제 확인 다이얼로그 (메인/게시판 공통)
-  void _confirmDeletePost(int index) {
-    final post = _posts[index];
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('게시글 삭제 확인'),
-        content: Text('\'${post['title']}\' 게시글을 정말로 삭제하시겠습니까?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () {
-              setState(() {
-                _posts.removeAt(index);
-              });
-              _saveBoardToFirebase();
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('게시글이 성공적으로 삭제되었습니다.'),
-                  backgroundColor: Colors.redAccent,
-                ),
-              );
-            },
-            child: const Text('삭제'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // 근무표 사진 첨부 지원 게시글 작성 모달
+  // 여러 장의 사진 선택 및 누적 추가 다이얼로그
   void _openCreatePostDialog() {
     final titleCtrl = TextEditingController();
     final contentCtrl = TextEditingController();
-    String? selectedBase64Image;
-    String? selectedImageName;
+    List<String> selectedImages = []; // 여러 장 이미지 리스트
 
     showDialog(
       context: context,
@@ -1021,7 +1009,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             ],
           ),
           content: SizedBox(
-            width: 440,
+            width: 460,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1041,28 +1029,29 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   ),
                   const SizedBox(height: 14),
 
+                  // 여러 장 첨부 지원 버튼
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       side: BorderSide(
-                          color: selectedBase64Image != null
+                          color: selectedImages.isNotEmpty
                               ? Colors.green
                               : const Color(0xFF1B365D)),
                     ),
                     icon: Icon(
-                      selectedBase64Image != null
-                          ? Icons.check_circle
-                          : Icons.add_photo_alternate,
-                      color: selectedBase64Image != null
+                      selectedImages.isNotEmpty
+                          ? Icons.add_photo_alternate
+                          : Icons.add_photo_alternate_outlined,
+                      color: selectedImages.isNotEmpty
                           ? Colors.green
                           : const Color(0xFF1B365D),
                     ),
                     label: Text(
-                      selectedBase64Image != null
-                          ? '사진 첨부 완료 (${selectedImageName ?? "근무표"})'
-                          : '📷 근무표 사진 첨부하기',
+                      selectedImages.isNotEmpty
+                          ? '📷 사진 추가하기 (현재 ${selectedImages.length}장 첨부됨)'
+                          : '📷 근무표 사진 첨부 (여러 장 선택 가능)',
                       style: TextStyle(
-                          color: selectedBase64Image != null
+                          color: selectedImages.isNotEmpty
                               ? Colors.green.shade800
                               : const Color(0xFF1B365D),
                           fontWeight: FontWeight.bold),
@@ -1071,55 +1060,70 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                     onPressed: () {
                       final uploadInput = html.FileUploadInputElement();
                       uploadInput.accept = 'image/*';
+                      uploadInput.multiple = true; // 다중 파일 선택 허용
                       uploadInput.click();
 
                       uploadInput.onChange.listen((e) {
                         final files = uploadInput.files;
                         if (files != null && files.isNotEmpty) {
-                          final file = files[0];
-                          final reader = html.FileReader();
-                          reader.readAsDataUrl(file);
-                          reader.onLoadEnd.listen((e) {
-                            setDialogState(() {
-                              selectedBase64Image = reader.result as String?;
-                              selectedImageName = file.name;
+                          for (var file in files) {
+                            final reader = html.FileReader();
+                            reader.readAsDataUrl(file);
+                            reader.onLoadEnd.listen((e) {
+                              final result = reader.result as String?;
+                              if (result != null) {
+                                setDialogState(() {
+                                  selectedImages.add(result);
+                                });
+                              }
                             });
-                          });
+                          }
                         }
                       });
                     },
                   ),
-                  if (selectedBase64Image != null) ...[
-                    const SizedBox(height: 10),
-                    Stack(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.network(
-                            selectedBase64Image!,
-                            height: 140,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                        Positioned(
-                          top: 4,
-                          right: 4,
-                          child: InkWell(
-                            onTap: () {
-                              setDialogState(() {
-                                selectedBase64Image = null;
-                                selectedImageName = null;
-                              });
-                            },
-                            child: const CircleAvatar(
-                              radius: 12,
-                              backgroundColor: Colors.black54,
-                              child: Icon(Icons.close, size: 16, color: Colors.white),
-                            ),
-                          ),
-                        ),
-                      ],
+
+                  // 첨부된 여러 장의 사진 가로 스크롤 미리보기 & 삭제
+                  if (selectedImages.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 110,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: selectedImages.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (ctx, i) {
+                          return Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.network(
+                                  selectedImages[i],
+                                  width: 100,
+                                  height: 100,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                              Positioned(
+                                top: 2,
+                                right: 2,
+                                child: InkWell(
+                                  onTap: () {
+                                    setDialogState(() {
+                                      selectedImages.removeAt(i);
+                                    });
+                                  },
+                                  child: const CircleAvatar(
+                                    radius: 11,
+                                    backgroundColor: Colors.black54,
+                                    child: Icon(Icons.close, size: 14, color: Colors.white),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
                     ),
                   ],
                 ],
@@ -1137,10 +1141,10 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
               onPressed: () {
                 final t = titleCtrl.text.trim();
                 final c = contentCtrl.text.trim();
-                if (t.isEmpty && selectedBase64Image == null) {
+                if (t.isEmpty && selectedImages.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                        content: Text('제목 또는 근무표 사진을 등록해주세요.'),
+                        content: Text('제목 또는 사진을 등록해주세요.'),
                         backgroundColor: Colors.redAccent),
                   );
                   return;
@@ -1150,7 +1154,8 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                   'title': t.isNotEmpty ? t : '근무표 공지',
                   'content': c,
                   'author': widget.userName,
-                  'image': selectedBase64Image ?? '',
+                  'images': selectedImages, // 여러 장 리스트 저장
+                  'image': selectedImages.isNotEmpty ? selectedImages[0] : '', // 하위 호환용 대표 이미지
                   'date':
                       '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}',
                 };
@@ -1784,6 +1789,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
     );
   }
 
+  // 여러 장 사진 확대 모달
   void _showImageZoomDialog(String base64Img, String title) {
     showDialog(
       context: context,
@@ -1817,6 +1823,17 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
         ),
       ),
     );
+  }
+
+  // 게시글에서 사진 목록 추출 (다중 및 단일 호환)
+  List<String> _extractImages(Map<String, dynamic> post) {
+    if (post['images'] != null && post['images'] is List) {
+      return (post['images'] as List).map((e) => e.toString()).toList();
+    }
+    if (post['image'] != null && (post['image'] as String).isNotEmpty) {
+      return [post['image'] as String];
+    }
+    return [];
   }
 
   @override
@@ -2165,7 +2182,7 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
             ),
             const SizedBox(height: 8),
 
-            // 메인 화면 고정 사내 게시판 (관리자 삭제 버튼 및 사진 썸네일 지원)
+            // 메인 화면 고정 사내 게시판 (다중 사진 썸네일 미리보기)
             Card(
               elevation: 1,
               child: Padding(
@@ -2203,33 +2220,52 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                         child: Text('등록된 게시글이 없습니다.', style: TextStyle(color: Colors.grey)),
                       )
                     else
-                      ...List.generate(_posts.take(3).length, (idx) {
+                      ...List.generate(_posts.length > 3 ? 3 : _posts.length, (idx) {
                         final post = _posts[idx];
-                        final hasImg = post['image'] != null && (post['image'] as String).isNotEmpty;
+                        final images = _extractImages(post);
+
                         return ListTile(
                           dense: true,
                           contentPadding: EdgeInsets.zero,
-                          leading: hasImg
+                          leading: images.isNotEmpty
                               ? InkWell(
                                   onTap: () => _showImageZoomDialog(
-                                      post['image'], post['title'] ?? '근무표'),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(6),
-                                    child: Image.network(
-                                      post['image'],
-                                      width: 44,
-                                      height: 44,
-                                      fit: BoxFit.cover,
-                                    ),
+                                      images[0], post['title'] ?? '근무표'),
+                                  child: Stack(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(6),
+                                        child: Image.network(
+                                          images[0],
+                                          width: 44,
+                                          height: 44,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      ),
+                                      if (images.length > 1)
+                                        Positioned(
+                                          bottom: 0,
+                                          right: 0,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black87,
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text('+${images.length}',
+                                                style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                                          ),
+                                        ),
+                                    ],
                                   ),
                                 )
                               : null,
                           title: Row(
                             children: [
-                              if (hasImg)
-                                const Padding(
-                                  padding: EdgeInsets.only(right: 4.0),
-                                  child: Icon(Icons.image, size: 14, color: Colors.blueAccent),
+                              if (images.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 4.0),
+                                  child: Icon(Icons.photo_library, size: 14, color: Colors.blue.shade700),
                                 ),
                               Expanded(
                                 child: Text('• ${post['title']}',
@@ -2246,13 +2282,13 @@ class _MainScheduleScreenState extends State<MainScheduleScreen> {
                           trailing: widget.isAdmin
                               ? IconButton(
                                   icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                                  tooltip: '게시글 삭제',
+                                  tooltip: '삭제',
                                   onPressed: () => _confirmDeletePost(idx),
                                 )
                               : null,
                           onTap: () {
-                            if (hasImg) {
-                              _showImageZoomDialog(post['image'], post['title'] ?? '근무표');
+                            if (images.isNotEmpty) {
+                              _showImageZoomDialog(images[0], post['title'] ?? '근무표');
                             } else {
                               _openBulletinScreen();
                             }
@@ -3024,7 +3060,7 @@ class MonthlyVacationListScreen extends StatelessWidget {
   }
 }
 
-// 7. 게시판 & 근무표 (사진 첨부, 확대 보기, 안전 삭제 기능 포함)
+// 7. 게시판 & 근무표 (다중 사진 리스트 렌더링 및 확대 보기 지원)
 class BulletinBoardScreen extends StatefulWidget {
   final bool isAdmin;
   final String userName;
@@ -3045,48 +3081,10 @@ class BulletinBoardScreen extends StatefulWidget {
 }
 
 class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
-  // 게시글 삭제 확인 다이얼로그
-  void _confirmDelete(int idx) {
-    final post = widget.posts[idx];
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('게시글 삭제 확인'),
-        content: Text('\'${post['title']}\' 게시글을 정말로 삭제하시겠습니까?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () {
-              final updated = List<Map<String, dynamic>>.from(widget.posts)
-                ..removeAt(idx);
-              widget.onPostsUpdated(updated);
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('게시글이 삭제되었습니다.'),
-                  backgroundColor: Colors.redAccent,
-                ),
-              );
-            },
-            child: const Text('삭제'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _openCreatePostDialog() {
     final titleCtrl = TextEditingController();
     final contentCtrl = TextEditingController();
-    String? selectedBase64Image;
-    String? selectedImageName;
+    List<String> selectedImages = [];
 
     showDialog(
       context: context,
@@ -3102,7 +3100,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
             ],
           ),
           content: SizedBox(
-            width: 440,
+            width: 460,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -3126,24 +3124,24 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       side: BorderSide(
-                          color: selectedBase64Image != null
+                          color: selectedImages.isNotEmpty
                               ? Colors.green
                               : const Color(0xFF1B365D)),
                     ),
                     icon: Icon(
-                      selectedBase64Image != null
-                          ? Icons.check_circle
-                          : Icons.add_photo_alternate,
-                      color: selectedBase64Image != null
+                      selectedImages.isNotEmpty
+                          ? Icons.add_photo_alternate
+                          : Icons.add_photo_alternate_outlined,
+                      color: selectedImages.isNotEmpty
                           ? Colors.green
                           : const Color(0xFF1B365D),
                     ),
                     label: Text(
-                      selectedBase64Image != null
-                          ? '사진 첨부 완료 (${selectedImageName ?? "근무표"})'
-                          : '📷 근무표 사진 첨부하기',
+                      selectedImages.isNotEmpty
+                          ? '📷 사진 추가하기 (현재 ${selectedImages.length}장 첨부됨)'
+                          : '📷 근무표 사진 첨부 (여러 장 선택 가능)',
                       style: TextStyle(
-                          color: selectedBase64Image != null
+                          color: selectedImages.isNotEmpty
                               ? Colors.green.shade800
                               : const Color(0xFF1B365D),
                           fontWeight: FontWeight.bold),
@@ -3152,55 +3150,68 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                     onPressed: () {
                       final uploadInput = html.FileUploadInputElement();
                       uploadInput.accept = 'image/*';
+                      uploadInput.multiple = true;
                       uploadInput.click();
 
                       uploadInput.onChange.listen((e) {
                         final files = uploadInput.files;
                         if (files != null && files.isNotEmpty) {
-                          final file = files[0];
-                          final reader = html.FileReader();
-                          reader.readAsDataUrl(file);
-                          reader.onLoadEnd.listen((e) {
-                            setDialogState(() {
-                              selectedBase64Image = reader.result as String?;
-                              selectedImageName = file.name;
+                          for (var file in files) {
+                            final reader = html.FileReader();
+                            reader.readAsDataUrl(file);
+                            reader.onLoadEnd.listen((e) {
+                              final result = reader.result as String?;
+                              if (result != null) {
+                                setDialogState(() {
+                                  selectedImages.add(result);
+                                });
+                              }
                             });
-                          });
+                          }
                         }
                       });
                     },
                   ),
-                  if (selectedBase64Image != null) ...[
-                    const SizedBox(height: 10),
-                    Stack(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.network(
-                            selectedBase64Image!,
-                            height: 140,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                        Positioned(
-                          top: 4,
-                          right: 4,
-                          child: InkWell(
-                            onTap: () {
-                              setDialogState(() {
-                                selectedBase64Image = null;
-                                selectedImageName = null;
-                              });
-                            },
-                            child: const CircleAvatar(
-                              radius: 12,
-                              backgroundColor: Colors.black54,
-                              child: Icon(Icons.close, size: 16, color: Colors.white),
-                            ),
-                          ),
-                        ),
-                      ],
+                  if (selectedImages.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 110,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: selectedImages.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (ctx, i) {
+                          return Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.network(
+                                  selectedImages[i],
+                                  width: 100,
+                                  height: 100,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                              Positioned(
+                                top: 2,
+                                right: 2,
+                                child: InkWell(
+                                  onTap: () {
+                                    setDialogState(() {
+                                      selectedImages.removeAt(i);
+                                    });
+                                  },
+                                  child: const CircleAvatar(
+                                    radius: 11,
+                                    backgroundColor: Colors.black54,
+                                    child: Icon(Icons.close, size: 14, color: Colors.white),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
                     ),
                   ],
                 ],
@@ -3218,7 +3229,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
               onPressed: () {
                 final t = titleCtrl.text.trim();
                 final c = contentCtrl.text.trim();
-                if (t.isEmpty && selectedBase64Image == null) {
+                if (t.isEmpty && selectedImages.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                         content: Text('제목 또는 근무표 사진을 등록해주세요.'),
@@ -3231,7 +3242,8 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                   'title': t.isNotEmpty ? t : '근무표 공지',
                   'content': c,
                   'author': widget.userName,
-                  'image': selectedBase64Image ?? '',
+                  'images': selectedImages,
+                  'image': selectedImages.isNotEmpty ? selectedImages[0] : '',
                   'date':
                       '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}',
                 };
@@ -3289,6 +3301,41 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
     );
   }
 
+  void _confirmDeletePostInBulletin(int idx) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('게시글 삭제'),
+        content: const Text('해당 게시글/근무표를 정말 삭제하시겠습니까?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () {
+              final updated = List<Map<String, dynamic>>.from(widget.posts)..removeAt(idx);
+              widget.onPostsUpdated(updated);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('게시글이 성공적으로 삭제되었습니다.'), backgroundColor: Colors.redAccent),
+              );
+            },
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<String> _extractImages(Map<String, dynamic> post) {
+    if (post['images'] != null && post['images'] is List) {
+      return (post['images'] as List).map((e) => e.toString()).toList();
+    }
+    if (post['image'] != null && (post['image'] as String).isNotEmpty) {
+      return [post['image'] as String];
+    }
+    return [];
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -3312,7 +3359,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
               itemCount: widget.posts.length,
               itemBuilder: (ctx, idx) {
                 final post = widget.posts[idx];
-                final hasImg = post['image'] != null && (post['image'] as String).isNotEmpty;
+                final images = _extractImages(post);
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -3333,7 +3380,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                               IconButton(
                                 icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 22),
                                 tooltip: '게시글 삭제',
-                                onPressed: () => _confirmDelete(idx),
+                                onPressed: () => _confirmDeletePostInBulletin(idx),
                               ),
                           ],
                         ),
@@ -3343,39 +3390,48 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                           const SizedBox(height: 8),
                           Text(post['content'] ?? '', style: const TextStyle(fontSize: 14)),
                         ],
-                        if (hasImg) ...[
+
+                        // 여러 장 사진 목록 표시 (가로 스크롤 및 개별 터치 확대)
+                        if (images.isNotEmpty) ...[
                           const SizedBox(height: 10),
-                          InkWell(
-                            onTap: () => _showZoomDialog(post['image'], post['title'] ?? '근무표'),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Stack(
-                                alignment: Alignment.bottomRight,
-                                children: [
-                                  Image.network(
-                                    post['image'],
-                                    fit: BoxFit.contain,
-                                    width: double.infinity,
-                                    errorBuilder: (ctx, err, stack) => const Text('이미지를 불러올 수 없습니다.'),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    margin: const EdgeInsets.all(6),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black54,
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: const Row(
-                                      mainAxisSize: MainAxisSize.min,
+                          SizedBox(
+                            height: 140,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: images.length,
+                              separatorBuilder: (_, __) => const SizedBox(width: 8),
+                              itemBuilder: (ctx, imgIdx) {
+                                return InkWell(
+                                  onTap: () => _showZoomDialog(
+                                      images[imgIdx], '${post['title'] ?? "근무표"} (${imgIdx + 1}/${images.length})'),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Stack(
+                                      alignment: Alignment.bottomRight,
                                       children: [
-                                        Icon(Icons.zoom_in, color: Colors.white, size: 14),
-                                        SizedBox(width: 4),
-                                        Text('터치하여 확대', style: TextStyle(color: Colors.white, fontSize: 11)),
+                                        Image.network(
+                                          images[imgIdx],
+                                          height: 140,
+                                          width: 140,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (ctx, err, stack) => const SizedBox(
+                                              width: 100, child: Center(child: Icon(Icons.broken_image))),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          margin: const EdgeInsets.all(4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black54,
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Text('${imgIdx + 1}/${images.length}',
+                                              style: const TextStyle(color: Colors.white, fontSize: 10)),
+                                        ),
                                       ],
                                     ),
                                   ),
-                                ],
-                              ),
+                                );
+                              },
                             ),
                           ),
                         ],
