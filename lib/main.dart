@@ -3,11 +3,13 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'dart:html' as html;
 
+// Firebase 클라우드 DB 연동 설정
 const String firestoreProjectId = "ktng-schedule";
 const String firestoreApiKey = "AIzaSyCqq2-pNm6e4z4nq0ijX3ZI4bGsxY0w75Q";
 const String firestoreBaseUrl =
     "https://firestore.googleapis.com/v1/projects/$firestoreProjectId/databases/(default)/documents/app_data";
 
+// 전역 상태 데이터
 Map<String, List<Map<String, String>>> globalScheduleMap = {};
 List<Map<String, String>> globalApprovalRequests = [];
 List<Map<String, dynamic>> globalAttendanceRecords = [];
@@ -23,6 +25,7 @@ String getCurrentDateTimeString() {
   return "$y-$m-$d $h:$min";
 }
 
+// 스마트폰 고용량 사진 압축 최적화
 Future<String> compressAndConvertImage(html.File file) async {
   final reader = html.FileReader();
   reader.readAsDataUrl(file);
