@@ -1,181 +1,66 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
 import 'dart:html' as html;
+import 'package:flutter/material.dart';
 
-// Firebase 클라우드 DB 연동 설정
-const String firestoreProjectId = "ktng-schedule";
-const String firestoreApiKey = "AIzaSyCqq2-pNm6e4z4nq0ijX3ZI4bGsxY0w75Q";
+// Firebase Firestore 설정
 const String firestoreBaseUrl =
-    "https://firestore.googleapis.com/v1/projects/$firestoreProjectId/databases/(default)/documents/app_data";
+    'https://firestore.googleapis.com/v1/projects/ktng-schedule-app/databases/(default)/documents';
+const String firestoreApiKey = 'AIzaSyDummyKeyReplaceIfConfigured';
 
-// 전역 상태 데이터
-Map<String, List<Map<String, String>>> globalScheduleMap = {};
-List<Map<String, String>> globalApprovalRequests = [];
-List<Map<String, dynamic>> globalAttendanceRecords = [];
-Map<String, Map<String, String>> globalUsers = {}; // {empId: {'name': name, 'password': pw}}
+// 전역 사용자 계정 및 근무 데이터 저장소
+Map<String, Map<String, String>> globalUsers = {
+  '20190416': {'name': '김수완', 'password': '1234'},
+};
 
-// Firebase 서버에 데이터 즉시 동기화 전송 (전역 함수)
-Future<void> saveAllData() async {
-  try {
-    final schedJson = jsonEncode(globalScheduleMap);
-    final appJson = jsonEncode(globalApprovalRequests);
-    final attJson = jsonEncode(globalAttendanceRecords);
-    final usersJson = jsonEncode(globalUsers);
+// 근무 기록 데이터 (사번 -> 날짜 문자열(YYYY-MM-DD) -> 근무 타입)
+Map<String, Map<String, String>> globalShifts = {};
 
-    html.window.localStorage['ktng_schedule_data'] = schedJson;
-    html.window.localStorage['ktng_approval_data'] = appJson;
-    html.window.localStorage['ktng_attendance_data'] = attJson;
-    html.window.localStorage['ktng_users_data'] = usersJson;
-
-    await html.HttpRequest.request(
-      '$firestoreBaseUrl/schedules?key=$firestoreApiKey',
-      method: 'PATCH',
-      requestHeaders: {'Content-Type': 'application/json'},
-      sendData: jsonEncode({
-        'fields': {
-          'data': {'stringValue': schedJson}
-        }
-      }),
-    );
-
-    await html.HttpRequest.request(
-      '$firestoreBaseUrl/approvals?key=$firestoreApiKey',
-      method: 'PATCH',
-      requestHeaders: {'Content-Type': 'application/json'},
-      sendData: jsonEncode({
-        'fields': {
-          'data': {'stringValue': appJson}
-        }
-      }),
-    );
-
-    await html.HttpRequest.request(
-      '$firestoreBaseUrl/attendance?key=$firestoreApiKey',
-      method: 'PATCH',
-      requestHeaders: {'Content-Type': 'application/json'},
-      sendData: jsonEncode({
-        'fields': {
-          'data': {'stringValue': attJson}
-        }
-      }),
-    );
-
-    await html.HttpRequest.request(
-      '$firestoreBaseUrl/users?key=$firestoreApiKey',
-      method: 'PATCH',
-      requestHeaders: {'Content-Type': 'application/json'},
-      sendData: jsonEncode({
-        'fields': {
-          'data': {'stringValue': usersJson}
-        }
-      }),
-    );
-  } catch (e) {
-    debugPrint("서버 저장 오류: $e");
+// 관리자 공지 및 게시글 데이터 목록
+List<Map<String, String>> globalPosts = [
+  {
+    'id': '1',
+    'title': 'KT&G 근무 스케줄 관리 시스템 안내',
+    'content': '근무 등록 시 오전, 오후, 야간, 주간(08:30~17:30)을 정확히 선택해 주시기 바랍니다.',
+    'author': '관리자',
+    'date': '2026-09-28',
   }
-}
+];
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const WorkScheduleApp());
+  runApp(const MyApp());
 }
 
-class WorkScheduleApp extends StatelessWidget {
-  const WorkScheduleApp({super.key});
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final isLoggedIn = html.window.localStorage['is_logged_in'] == 'true';
-    final savedEmpId = html.window.localStorage['last_emp_id'] ?? '';
-    final savedName = html.window.localStorage['last_name'] ?? '';
-    final savedAdmin = html.window.localStorage['is_admin'] == 'true';
-
-    final Widget initialHome =
-        (isLoggedIn && savedEmpId.isNotEmpty && savedName.isNotEmpty)
-            ? MainScheduleScreen(
-                employeeId: savedEmpId,
-                userName: savedName,
-                isAdmin: savedAdmin,
-              )
-            : const SplashScreen();
-
     return MaterialApp(
       title: 'KT&G 근무 스케줄 관리',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
+        primaryColor: const Color(0xFF1B365D),
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1B365D)),
         useMaterial3: true,
+        fontFamily: 'Pretendard',
       ),
-      home: initialHome,
+      home: const LoginScreen(),
     );
   }
 }
 
-// 1. KT&G 스플래시 화면
-class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
-
-  @override
-  State<SplashScreen> createState() => _SplashScreenState();
+// 데이터 저장 헬퍼 함수
+void saveAllData() {
+  try {
+    html.window.localStorage['ktng_users_data'] = jsonEncode(globalUsers);
+    html.window.localStorage['ktng_shifts_data'] = jsonEncode(globalShifts);
+    html.window.localStorage['ktng_posts_data'] = jsonEncode(globalPosts);
+  } catch (_) {}
 }
 
-class _SplashScreenState extends State<SplashScreen> {
-  @override
-  void initState() {
-    super.initState();
-    Future.delayed(const Duration(milliseconds: 1000), () {
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-      );
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Image.network(
-              'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/KT%26G_Logo.svg/512px-KT%26G_Logo.svg.png',
-              width: 200,
-              errorBuilder: (context, error, stackTrace) => const Text(
-                'KT&G',
-                style: TextStyle(
-                    fontSize: 44,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF333333)),
-              ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              '근무 스케줄 관리 시스템',
-              style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1B365D),
-                  letterSpacing: 1.2),
-            ),
-            const SizedBox(height: 32),
-            const SizedBox(
-              width: 30,
-              height: 30,
-              child: CircularProgressIndicator(
-                  strokeWidth: 3, color: Color(0xFFE35205)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// 2. 보안 로그인 & 회원가입 화면
-// 2. 보안 로그인 & 회원가입 화면
+// -------------------------------------------------------------
+// 1. 보안 로그인 & 회원가입 화면
+// -------------------------------------------------------------
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -186,8 +71,8 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   bool _isSignUpMode = false;
 
-  final _empIdController = TextEditingController();
-  final _nameController = TextEditingController();
+  final _empIdController = TextEditingController(text: '20190416');
+  final _nameController = TextEditingController(text: '김수완');
   final _pwController = TextEditingController();
   final _confirmPwController = TextEditingController();
   final _adminCodeController = TextEditingController();
@@ -198,29 +83,27 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    _loadUsersData();
+    _loadStorageData();
   }
 
-  Future<void> _loadUsersData() async {
+  void _loadStorageData() {
     try {
-      final local = html.window.localStorage['ktng_users_data'];
-      if (local != null && local.isNotEmpty) {
-        final decoded = jsonDecode(local) as Map<String, dynamic>;
+      final usersLocal = html.window.localStorage['ktng_users_data'];
+      if (usersLocal != null && usersLocal.isNotEmpty) {
+        final decoded = jsonDecode(usersLocal) as Map<String, dynamic>;
         globalUsers = decoded.map((k, v) => MapEntry(k, Map<String, String>.from(v as Map)));
       }
 
-      final res = await html.HttpRequest.request(
-        '$firestoreBaseUrl/users?key=$firestoreApiKey',
-        method: 'GET',
-      );
-      if (res.status == 200 && res.responseText != null) {
-        final body = jsonDecode(res.responseText!);
-        final jsonStr = body['fields']?['data']?['stringValue'];
-        if (jsonStr != null && jsonStr.isNotEmpty) {
-          final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
-          globalUsers = decoded.map((k, v) => MapEntry(k, Map<String, String>.from(v as Map)));
-          html.window.localStorage['ktng_users_data'] = jsonStr;
-        }
+      final shiftsLocal = html.window.localStorage['ktng_shifts_data'];
+      if (shiftsLocal != null && shiftsLocal.isNotEmpty) {
+        final decoded = jsonDecode(shiftsLocal) as Map<String, dynamic>;
+        globalShifts = decoded.map((k, v) => MapEntry(k, Map<String, String>.from(v as Map)));
+      }
+
+      final postsLocal = html.window.localStorage['ktng_posts_data'];
+      if (postsLocal != null && postsLocal.isNotEmpty) {
+        final decoded = jsonDecode(postsLocal) as List;
+        globalPosts = decoded.map((e) => Map<String, String>.from(e as Map)).toList();
       }
     } catch (_) {}
     if (mounted) setState(() {});
@@ -252,7 +135,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final confirmPw = _confirmPwController.text.trim();
       if (pw != confirmPw) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('비밀번호가 일치하지 않습니다.'), backgroundColor: Colors.redAccent),
+          const SnackBar(content: Text('비밀번호 확인이 일치하지 않습니다.'), backgroundColor: Colors.redAccent),
         );
         return;
       }
@@ -265,7 +148,7 @@ class _LoginScreenState extends State<LoginScreen> {
       globalUsers[empId] = {'name': name, 'password': pw};
       saveAllData();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('회원가입 완료! 로그인해주세요.'), backgroundColor: Colors.green),
+        const SnackBar(content: Text('회원가입이 완료되었습니다! 로그인해주세요.'), backgroundColor: Colors.green),
       );
       setState(() {
         _isSignUpMode = false;
@@ -301,13 +184,6 @@ class _LoginScreenState extends State<LoginScreen> {
           return;
         }
       }
-
-      try {
-        html.window.localStorage['is_logged_in'] = 'true';
-        html.window.localStorage['last_emp_id'] = empId;
-        html.window.localStorage['last_name'] = name;
-        html.window.localStorage['is_admin'] = _isAdminMode.toString();
-      } catch (_) {}
 
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
@@ -348,7 +224,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     width: 140,
                     errorBuilder: (context, error, stackTrace) => const Text(
                       'KT&G',
-                      style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                      style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFF1B365D)),
                     ),
                   ),
                 ),
@@ -367,9 +243,21 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           decoration: BoxDecoration(
-                            border: Border(bottom: BorderSide(color: !_isSignUpMode ? const Color(0xFF1B365D) : Colors.transparent, width: 2.5)),
+                            border: Border(
+                              bottom: BorderSide(
+                                color: !_isSignUpMode ? const Color(0xFF1B365D) : Colors.transparent,
+                                width: 2.5,
+                              ),
+                            ),
                           ),
-                          child: Text('로그인', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, color: !_isSignUpMode ? const Color(0xFF1B365D) : Colors.grey)),
+                          child: Text(
+                            '로그인',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: !_isSignUpMode ? const Color(0xFF1B365D) : Colors.grey,
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -382,9 +270,21 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           decoration: BoxDecoration(
-                            border: Border(bottom: BorderSide(color: _isSignUpMode ? const Color(0xFF1B365D) : Colors.transparent, width: 2.5)),
+                            border: Border(
+                              bottom: BorderSide(
+                                color: _isSignUpMode ? const Color(0xFF1B365D) : Colors.transparent,
+                                width: 2.5,
+                              ),
+                            ),
                           ),
-                          child: Text('회원가입', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, color: _isSignUpMode ? const Color(0xFF1B365D) : Colors.grey)),
+                          child: Text(
+                            '회원가입',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: _isSignUpMode ? const Color(0xFF1B365D) : Colors.grey,
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -393,25 +293,41 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 20),
                 TextField(
                   controller: _empIdController,
-                  decoration: const InputDecoration(labelText: '사번 (Employee ID)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.badge_outlined)),
+                  decoration: const InputDecoration(
+                    labelText: '사번 (Employee ID)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.badge_outlined),
+                  ),
                 ),
                 const SizedBox(height: 14),
                 TextField(
                   controller: _nameController,
-                  decoration: const InputDecoration(labelText: '성명 (Name)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.person_outline)),
+                  decoration: const InputDecoration(
+                    labelText: '성명 (Name)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.person_outline),
+                  ),
                 ),
                 const SizedBox(height: 14),
                 TextField(
                   controller: _pwController,
                   obscureText: true,
-                  decoration: const InputDecoration(labelText: '비밀번호 (Password)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.lock_outline)),
+                  decoration: const InputDecoration(
+                    labelText: '비밀번호 (Password)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.lock_outline),
+                  ),
                 ),
                 if (_isSignUpMode) ...[
                   const SizedBox(height: 14),
                   TextField(
                     controller: _confirmPwController,
                     obscureText: true,
-                    decoration: const InputDecoration(labelText: '비밀번호 확인', border: OutlineInputBorder(), prefixIcon: Icon(Icons.check_circle_outline)),
+                    decoration: const InputDecoration(
+                      labelText: '비밀번호 확인',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.check_circle_outline),
+                    ),
                   ),
                 ],
                 if (!_isSignUpMode) ...[
@@ -432,7 +348,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     TextField(
                       controller: _adminCodeController,
                       obscureText: true,
-                      decoration: const InputDecoration(labelText: '관리자 마스터 코드', border: OutlineInputBorder(), prefixIcon: Icon(Icons.security)),
+                      decoration: const InputDecoration(
+                        labelText: '관리자 마스터 코드',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.security),
+                      ),
                     ),
                   ],
                 ],
@@ -445,7 +365,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
-                  child: Text(_isSignUpMode ? '신규 계정 회원가입 완료' : '로그인', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    _isSignUpMode ? '신규 계정 회원가입 완료' : '로그인',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ],
             ),
@@ -456,7 +379,9 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 3. 메인 스케줄 화면
+// -------------------------------------------------------------
+// 2. 메인 스케줄 & 게시글 관리 화면
+// -------------------------------------------------------------
 class MainScheduleScreen extends StatefulWidget {
   final String employeeId;
   final String userName;
@@ -474,1652 +399,274 @@ class MainScheduleScreen extends StatefulWidget {
 }
 
 class _MainScheduleScreenState extends State<MainScheduleScreen> {
-  String _notice =
-      "📢 [공지] 이번 주 포함 총 3주간(다다음 주 일요일까지)은 통으로 잠금 처리되어 관리자 승인이 필요하며, 4주차 월요일부터는 자유롭게 신청/삭제 가능합니다.";
-  bool _notificationGranted = false;
-  bool _isSyncing = false;
+  DateTime _focusedDate = DateTime.now();
 
-  List<Map<String, dynamic>> _posts = [];
-  DateTime _currentMonth = DateTime.now();
-  DateTime? _selectedDate;
+  // 근무 유형 목록 (요청 반영: '종일' 제거)
+  final List<String> _shiftTypes = [
+    '주간 (08:30 - 17:30)',
+    '오전 (06:30 - 14:30)',
+    '오후 (14:30 - 22:30)',
+    '야간 (22:30 - 06:30)',
+  ];
 
-  @override
-  void initState() {
-    super.initState();
-    _selectedDate = DateTime.now();
-    _loadLocalStoredData();
-    _syncFromFirebase();
-    _safeCheckNotificationPermission();
-  }
+  // 관리자 전용 게시글 등록 다이얼로그 (요청 반영: 기능 복구)
+  void _showCreatePostDialog() {
+    final titleCtrl = TextEditingController();
+    final contentCtrl = TextEditingController();
 
-  void _loadLocalStoredData() {
-    try {
-      final savedNotice = html.window.localStorage['ktng_notice'];
-      if (savedNotice != null && savedNotice.isNotEmpty) _notice = savedNotice;
-
-      final savedPosts = html.window.localStorage['ktng_bulletin_posts'];
-      if (savedPosts != null && savedPosts.isNotEmpty) {
-        final decodedPosts = jsonDecode(savedPosts) as List;
-        _posts = decodedPosts
-            .map((p) => Map<String, dynamic>.from(p as Map))
-            .toList();
-      }
-
-      final savedData = html.window.localStorage['ktng_schedule_data'];
-      if (savedData != null && savedData.isNotEmpty) {
-        final decoded = jsonDecode(savedData) as Map<String, dynamic>;
-        globalScheduleMap = decoded.map((key, value) {
-          final list = (value as List)
-              .map((item) => Map<String, String>.from(item as Map))
-              .toList();
-          return MapEntry(key, list);
-        });
-      }
-
-      final savedApproval = html.window.localStorage['ktng_approval_data'];
-      if (savedApproval != null && savedApproval.isNotEmpty) {
-        final decodedApp = jsonDecode(savedApproval) as List;
-        globalApprovalRequests = decodedApp
-            .map((item) => Map<String, String>.from(item as Map))
-            .toList();
-      }
-
-      final savedAtt = html.window.localStorage['ktng_attendance_data'];
-      if (savedAtt != null && savedAtt.isNotEmpty) {
-        final decodedAtt = jsonDecode(savedAtt) as List;
-        globalAttendanceRecords = decodedAtt
-            .map((item) => Map<String, dynamic>.from(item as Map))
-            .toList();
-      }
-
-      final savedUsers = html.window.localStorage['ktng_users_data'];
-      if (savedUsers != null && savedUsers.isNotEmpty) {
-        final decodedUsers = jsonDecode(savedUsers) as Map<String, dynamic>;
-        globalUsers = decodedUsers
-            .map((k, v) => MapEntry(k, Map<String, String>.from(v as Map)));
-      }
-
-      setState(() {});
-    } catch (_) {}
-  }
-
-  Future<void> _syncFromFirebase() async {
-    setState(() => _isSyncing = true);
-    try {
-      // 1) 스케줄
-      try {
-        final schedReq = await html.HttpRequest.request(
-          '$firestoreBaseUrl/schedules?key=$firestoreApiKey',
-          method: 'GET',
-        );
-        if (schedReq.status == 200 && schedReq.responseText != null) {
-          final body = jsonDecode(schedReq.responseText!);
-          final jsonStr = body['fields']?['data']?['stringValue'];
-          if (jsonStr != null && jsonStr.isNotEmpty) {
-            final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
-            globalScheduleMap = decoded.map((k, v) {
-              final l = (v as List)
-                  .map((e) => Map<String, String>.from(e as Map))
-                  .toList();
-              return MapEntry(k, l);
-            });
-            html.window.localStorage['ktng_schedule_data'] = jsonStr;
-          }
-        }
-      } catch (_) {}
-
-      // 2) 결재
-      try {
-        final appReq = await html.HttpRequest.request(
-          '$firestoreBaseUrl/approvals?key=$firestoreApiKey',
-          method: 'GET',
-        );
-        if (appReq.status == 200 && appReq.responseText != null) {
-          final body = jsonDecode(appReq.responseText!);
-          final jsonStr = body['fields']?['data']?['stringValue'];
-          if (jsonStr != null && jsonStr.isNotEmpty) {
-            final decoded = jsonDecode(jsonStr) as List;
-            globalApprovalRequests = decoded
-                .map((e) => Map<String, String>.from(e as Map))
-                .toList();
-            html.window.localStorage['ktng_approval_data'] = jsonStr;
-          }
-        }
-      } catch (_) {}
-
-      // 3) 근태기록
-      try {
-        final attReq = await html.HttpRequest.request(
-          '$firestoreBaseUrl/attendance?key=$firestoreApiKey',
-          method: 'GET',
-        );
-        if (attReq.status == 200 && attReq.responseText != null) {
-          final body = jsonDecode(attReq.responseText!);
-          final jsonStr = body['fields']?['data']?['stringValue'];
-          if (jsonStr != null && jsonStr.isNotEmpty) {
-            final decoded = jsonDecode(jsonStr) as List;
-            globalAttendanceRecords = decoded
-                .map((e) => Map<String, dynamic>.from(e as Map))
-                .toList();
-            html.window.localStorage['ktng_attendance_data'] = jsonStr;
-          }
-        }
-      } catch (_) {}
-
-      // 4) 사용자 계정
-      try {
-        final usersReq = await html.HttpRequest.request(
-          '$firestoreBaseUrl/users?key=$firestoreApiKey',
-          method: 'GET',
-        );
-        if (usersReq.status == 200 && usersReq.responseText != null) {
-          final body = jsonDecode(usersReq.responseText!);
-          final jsonStr = body['fields']?['data']?['stringValue'];
-          if (jsonStr != null && jsonStr.isNotEmpty) {
-            final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
-            globalUsers = decoded
-                .map((k, v) => MapEntry(k, Map<String, String>.from(v as Map)));
-            html.window.localStorage['ktng_users_data'] = jsonStr;
-          }
-        }
-      } catch (_) {}
-
-      // 5) 게시판
-      try {
-        final boardReq = await html.HttpRequest.request(
-          '$firestoreBaseUrl/board?key=$firestoreApiKey',
-          method: 'GET',
-        );
-        if (boardReq.status == 200 && boardReq.responseText != null) {
-          final body = jsonDecode(boardReq.responseText!);
-          final noticeStr = body['fields']?['notice']?['stringValue'];
-          final postsStr = body['fields']?['posts']?['stringValue'];
-
-          if (noticeStr != null && noticeStr.isNotEmpty) {
-            _notice = noticeStr;
-            html.window.localStorage['ktng_notice'] = noticeStr;
-          }
-          if (postsStr != null && postsStr.isNotEmpty) {
-            final decoded = jsonDecode(postsStr) as List;
-            _posts = decoded
-                .map((e) => Map<String, dynamic>.from(e as Map))
-                .toList();
-            html.window.localStorage['ktng_bulletin_posts'] = postsStr;
-          }
-        }
-      } catch (_) {}
-    } catch (e) {
-      debugPrint("서버 동기화 오류: $e");
-    } finally {
-      if (mounted) setState(() => _isSyncing = false);
-    }
-  }
-
-  Future<void> _saveBoardToFirebase() async {
-    try {
-      final postsJson = jsonEncode(_posts);
-      html.window.localStorage['ktng_notice'] = _notice;
-      html.window.localStorage['ktng_bulletin_posts'] = postsJson;
-
-      await html.HttpRequest.request(
-        '$firestoreBaseUrl/board?key=$firestoreApiKey',
-        method: 'PATCH',
-        requestHeaders: {'Content-Type': 'application/json'},
-        sendData: jsonEncode({
-          'fields': {
-            'notice': {'stringValue': _notice},
-            'posts': {'stringValue': postsJson},
-          }
-        }),
-      );
-    } catch (e) {
-      debugPrint("게시판 서버 저장 오류: $e");
-    }
-  }
-
-  void _safeCheckNotificationPermission() {
-    try {
-      if (html.Notification.permission == 'granted') {
-        setState(() => _notificationGranted = true);
-      }
-    } catch (_) {}
-  }
-
-  void _requestNotificationExplicitly() async {
-    try {
-      final permission = await html.Notification.requestPermission();
-      if (permission == 'granted') {
-        setState(() => _notificationGranted = true);
-        _sendWebNotification("🔔 알림 허용 완료", "새로운 공지사항 및 게시물 알림을 수신합니다.");
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('알림 권한이 허용되었습니다!')),
-          );
-        }
-      }
-    } catch (_) {}
-  }
-
-  String _formatDateKey(DateTime d) {
-    return "${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}";
-  }
-
-  bool _isPastDate(DateTime date) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final target = DateTime(date.year, date.month, date.day);
-    return target.isBefore(today);
-  }
-
-  bool _isWithinThreeWeeks(DateTime targetDate) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final target = DateTime(targetDate.year, targetDate.month, targetDate.day);
-    final thisWeekMonday = today.subtract(Duration(days: today.weekday - 1));
-    final twoWeeksLaterSunday = thisWeekMonday.add(const Duration(days: 20));
-    return !target.isBefore(today) && !target.isAfter(twoWeeksLaterSunday);
-  }
-
-  void _sendWebNotification(String title, String body) {
-    try {
-      if (html.Notification.permission == 'granted') {
-        html.Notification(title, body: body, icon: 'icons/Icon-192.png');
-      }
-    } catch (_) {}
-  }
-
-  void _showEditNoticeDialog() {
-    final controller = TextEditingController(text: _notice);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('📢 공지사항 작성/수정 (관리자 전용)'),
-        content: TextField(
-          controller: controller,
-          maxLines: 4,
-          decoration: const InputDecoration(
-              hintText: '공지할 내용을 작성하세요.', border: OutlineInputBorder()),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.campaign, color: Color(0xFF1B365D)),
+            SizedBox(width: 8),
+            Text('공지 및 게시글 등록', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          ],
+        ),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleCtrl,
+                decoration: const InputDecoration(labelText: '게시글 제목', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: contentCtrl,
+                maxLines: 4,
+                decoration: const InputDecoration(labelText: '공지 내용 작성', border: OutlineInputBorder()),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('취소'),
+          ),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1B365D),
+              foregroundColor: Colors.white,
+            ),
             onPressed: () {
-              final newNotice = controller.text.trim();
-              setState(() => _notice = newNotice);
-              _saveBoardToFirebase();
+              final t = titleCtrl.text.trim();
+              final c = contentCtrl.text.trim();
+              if (t.isEmpty || c.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('제목과 내용을 모두 입력해주세요.'), backgroundColor: Colors.redAccent),
+                );
+                return;
+              }
+              setState(() {
+                globalPosts.insert(0, {
+                  'id': DateTime.now().millisecondsSinceEpoch.toString(),
+                  'title': t,
+                  'content': c,
+                  'author': widget.userName,
+                  'date': '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}',
+                });
+              });
+              saveAllData();
               Navigator.pop(ctx);
-              _sendWebNotification("📢 [KT&G 공지사항]", newNotice);
               ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('공지사항이 중앙 서버에 저장되었습니다.')));
+                const SnackBar(content: Text('게시글이 성공적으로 등록되었습니다.'), backgroundColor: Colors.green),
+              );
             },
-            child: const Text('저장 및 알림 전송'),
+            child: const Text('등록 완료'),
           ),
         ],
       ),
     );
   }
 
-  void _openBulletinScreen() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (ctx) => BulletinBoardScreen(
-          isAdmin: widget.isAdmin,
-          userName: widget.userName,
-          posts: _posts,
-          onPostsUpdated: (updatedPosts) {
-            setState(() => _posts = updatedPosts);
-            _saveBoardToFirebase();
-          },
-          sendNotification: _sendWebNotification,
-        ),
-      ),
-    );
-  }
-
-  void _openVacationMonthlyOverviewScreen() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (ctx) =>
-            MonthlyVacationListScreen(scheduleMap: globalScheduleMap),
-      ),
-    );
-  }
-
-  void _openAttendanceScreen() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (ctx) => AttendanceManagementScreen(
-          isAdmin: widget.isAdmin,
-          currentUserName: widget.userName,
-          currentEmpId: widget.employeeId,
-          onUpdated: () => setState(() {}),
-        ),
-      ),
-    );
-  }
-
-  void _openEmergencyApprovalHistoryScreen() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (ctx) => EmergencyApprovalHistoryScreen(
-          isAdmin: widget.isAdmin,
-          onUpdated: () {
-            setState(() {});
-            saveAllData();
-          },
-          sendNotification: _sendWebNotification,
-        ),
-      ),
-    );
-  }
-
-  void _handleDeleteItem(
-      String dateKey, Map<String, String> item, bool isLockedThreeWeeks) {
-    if (widget.isAdmin) {
-      setState(() => globalScheduleMap[dateKey]?.remove(item));
-      saveAllData();
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('일정이 삭제되었습니다.')));
-      return;
-    }
-
-    if (!isLockedThreeWeeks) {
-      setState(() => globalScheduleMap[dateKey]?.remove(item));
-      saveAllData();
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('3주 잠금기간 이후 일정이 즉시 삭제되었습니다.')));
-    } else {
-      final deleteReasonController = TextEditingController();
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('🔒 3주 잠금기간 일정 삭제 승인 요청'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                  '이번 주 포함 총 3주(다다음 주 일요일까지) 일정의 취소/삭제는 관리자 승인이 필요합니다.',
-                  style: TextStyle(fontSize: 13, color: Colors.deepOrange)),
-              const SizedBox(height: 12),
-              Text('삭제 대상: ${item['content']}',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 14)),
-              const SizedBox(height: 14),
-              TextField(
-                controller: deleteReasonController,
-                decoration: const InputDecoration(
-                    labelText: '삭제/취소 사유 (필수)', border: OutlineInputBorder()),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx), child: const Text('닫기')),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepOrange,
-                  foregroundColor: Colors.white),
-              onPressed: () {
-                if (deleteReasonController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(const SnackBar(content: Text('삭제 사유를 입력해주세요.')));
-                  return;
-                }
-                final req = {
-                  'id': DateTime.now().millisecondsSinceEpoch.toString(),
-                  'actionType': '삭제요청',
-                  'date': dateKey,
-                  'empId': widget.employeeId,
-                  'empName': widget.userName,
-                  'type': item['type'] ?? '삭제',
-                  'content': item['content'] ?? '',
-                  'reason': deleteReasonController.text.trim(),
-                  'requestTime': DateTime.now().toString().substring(0, 16),
-                  'status': '대기중',
-                };
-                setState(() => globalApprovalRequests.insert(0, req));
-                saveAllData();
-                _sendWebNotification("⚡ [삭제 승인 요청]",
-                    "${widget.userName}님이 $dateKey 일정 삭제를 승인 요청했습니다.");
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('관리자에게 삭제 승인 요청이 전송되었습니다.')));
-              },
-              child: const Text('삭제 승인 요청'),
-            ),
-          ],
-        ),
-      );
-    }
-  }
-
-  void _showPastWorkRecordDialog() {
-    if (_selectedDate == null) return;
-    final dateKey = _formatDateKey(_selectedDate!);
-    String shiftTime = "오전 근무";
-    final overtimeController = TextEditingController();
+  // 근태 기록 등록 다이얼로그 (종일 제외된 4개 선택지)
+  void _showAddShiftDialog(DateTime date) {
+    String selectedShift = _shiftTypes[0];
+    final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text('지난 근무 확인 및 기록 ($dateKey)'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('⚠️ 지난 날짜는 실제 근무(오전/오후) 및 연장근무 기록용으로 작성됩니다.',
-                    style: TextStyle(fontSize: 12, color: Colors.brown)),
-                const SizedBox(height: 14),
-                DropdownButtonFormField<String>(
-                  value: shiftTime,
-                  decoration: const InputDecoration(
-                      labelText: '근무 시간대 선택', border: OutlineInputBorder()),
-                  items: const [
-                    DropdownMenuItem(value: "오전 근무", child: Text("오전 근무")),
-                    DropdownMenuItem(value: "오후 근무", child: Text("오후 근무")),
-                    DropdownMenuItem(
-                        value: "종일/주간 근무", child: Text("종일/주간 근무")),
-                    DropdownMenuItem(value: "야간 근무", child: Text("야간 근무")),
-                    DropdownMenuItem(value: "휴무", child: Text("휴무")),
-                  ],
-                  onChanged: (val) {
-                    if (val != null) setDialogState(() => shiftTime = val);
-                  },
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: overtimeController,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                      labelText: '연장 근무 및 비고 메모', border: OutlineInputBorder()),
-                ),
-              ],
-            ),
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('$dateStr 근무 등록', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: _shiftTypes.map((type) {
+              return RadioListTile<String>(
+                title: Text(type, style: const TextStyle(fontSize: 14)),
+                value: type,
+                groupValue: selectedShift,
+                onChanged: (val) {
+                  if (val != null) {
+                    setDialogState(() => selectedShift = val);
+                  }
+                },
+              );
+            }).toList(),
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('취소'),
+            ),
             ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1B365D),
+                foregroundColor: Colors.white,
+              ),
               onPressed: () {
-                final note = overtimeController.text.trim();
-                final record = {
-                  'empId': widget.employeeId,
-                  'empName': widget.userName,
-                  'type': '(실제기록)',
-                  'content':
-                      '$shiftTime ${note.isNotEmpty ? ' | 연장/메모: $note' : ''}',
-                };
                 setState(() {
-                  globalScheduleMap
-                      .putIfAbsent(dateKey, () => [])
-                      .removeWhere((item) => item['empId'] == widget.employeeId);
-                  globalScheduleMap[dateKey]!.add(record);
+                  globalShifts.putIfAbsent(widget.employeeId, () => {})[dateStr] = selectedShift;
                 });
                 saveAllData();
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(const SnackBar(content: Text('지난 근무 기록이 저장되었습니다.')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('근무가 등록되었습니다.'), backgroundColor: Colors.green),
+                );
               },
-              child: const Text('기록 저장'),
+              child: const Text('저장'),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  void _showAddWorkDialog() {
-    if (_selectedDate == null) return;
-    if (_isPastDate(_selectedDate!)) {
-      _showPastWorkRecordDialog();
-      return;
-    }
-
-    final isWeekend = _selectedDate!.weekday == DateTime.saturday ||
-        _selectedDate!.weekday == DateTime.sunday;
-    final dateKey = _formatDateKey(_selectedDate!);
-    final bool isLockedThreeWeeks = _isWithinThreeWeeks(_selectedDate!);
-    final bool requiresApproval = !widget.isAdmin && isLockedThreeWeeks;
-    final approvalReasonController = TextEditingController();
-
-    if (isWeekend) {
-      String weekendOption = "근무 가능";
-      final weekendNoteController = TextEditingController();
-
-      showDialog(
-        context: context,
-        builder: (ctx) => StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
-            title: Text('주말 근무 설정 ($dateKey)'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: weekendOption,
-                    decoration: const InputDecoration(
-                        labelText: '주말 근무 여부', border: OutlineInputBorder()),
-                    items: const [
-                      DropdownMenuItem(
-                          value: "근무 가능",
-                          child: Text("근무 가능",
-                              style: TextStyle(
-                                  color: Colors.blue,
-                                  fontWeight: FontWeight.bold))),
-                      DropdownMenuItem(
-                          value: "근무 불가능",
-                          child: Text("근무 불가능",
-                              style: TextStyle(
-                                  color: Colors.red,
-                                  fontWeight: FontWeight.bold))),
-                    ],
-                    onChanged: (val) {
-                      if (val != null) {
-                        setDialogState(() => weekendOption = val);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                      controller: weekendNoteController,
-                      decoration: const InputDecoration(
-                          labelText: '비고/메모 (선택)', border: OutlineInputBorder())),
-                  if (requiresApproval) ...[
-                    const SizedBox(height: 12),
-                    TextField(
-                        controller: approvalReasonController,
-                        decoration: const InputDecoration(
-                            labelText: '3주 잠금기간 신청 사유 (필수)',
-                            border: OutlineInputBorder())),
-                  ],
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: requiresApproval
-                        ? Colors.deepOrange
-                        : const Color(0xFF1B365D)),
-                onPressed: () {
-                  if (requiresApproval &&
-                      approvalReasonController.text.trim().isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('신청 사유를 입력해주세요.')));
-                    return;
-                  }
-                  final note = weekendNoteController.text.trim();
-                  final contentStr =
-                      '주말 $weekendOption ${note.isNotEmpty ? '($note)' : ''}';
-
-                  if (requiresApproval) {
-                    final req = {
-                      'id': DateTime.now().millisecondsSinceEpoch.toString(),
-                      'actionType': '신청요청',
-                      'date': dateKey,
-                      'empId': widget.employeeId,
-                      'empName': widget.userName,
-                      'type': '주말설정',
-                      'content': contentStr,
-                      'reason': approvalReasonController.text.trim(),
-                      'requestTime': DateTime.now().toString().substring(0, 16),
-                      'status': '대기중',
-                    };
-                    setState(() => globalApprovalRequests.insert(0, req));
-                    saveAllData();
-                    _sendWebNotification("⚡ [승인 요청] 3주 잠금기간 주말 근무",
-                        "${widget.userName}님이 $dateKey 주말 설정을 승인 요청했습니다.");
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('관리자에게 승인 요청이 전송되었습니다.')));
-                  } else {
-                    final record = {
-                      'empId': widget.employeeId,
-                      'empName': widget.userName,
-                      'type': '주말설정',
-                      'content': contentStr
-                    };
-                    setState(() {
-                      globalScheduleMap
-                          .putIfAbsent(dateKey, () => [])
-                          .removeWhere((item) => item['empId'] == widget.employeeId);
-                      globalScheduleMap[dateKey]!.add(record);
-                    });
-                    saveAllData();
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('주말 일정이 등록되었습니다.')));
-                  }
-                },
-                child: Text(requiresApproval ? '승인 요청' : '즉시 등록',
-                    style: const TextStyle(color: Colors.white)),
-              ),
-            ],
-          ),
-        ),
-      );
-    } else {
-      String selectedCategory = "연차";
-      String selectedLeaveTime = "8시간";
-      List<String> timeOptions = [];
-      for (int i = 0; i <= 16; i++) {
-        int hours = i ~/ 2;
-        int minutes = (i % 2) * 30;
-        if (hours == 0 && minutes == 0) {
-          timeOptions.add("0시간 (0분)");
-        } else if (minutes == 0) {
-          timeOptions.add("$hours시간");
-        } else if (hours == 0) {
-          timeOptions.add("$minutes분");
-        } else {
-          timeOptions.add("$hours시간 $minutes분");
-        }
-      }
-      final customNoteController = TextEditingController();
-
-      showDialog(
-        context: context,
-        builder: (ctx) => StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
-            title: Text('근무/휴가 신청 ($dateKey)'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: selectedCategory,
-                    decoration: const InputDecoration(
-                        labelText: '신청 항목', border: OutlineInputBorder()),
-                    items: const [
-                      DropdownMenuItem(value: "연차", child: Text("연차")),
-                      DropdownMenuItem(value: "체력단련", child: Text("체력단련")),
-                      DropdownMenuItem(value: "가족사랑", child: Text("가족사랑")),
-                      DropdownMenuItem(value: "건강검진", child: Text("건강검진")),
-                      DropdownMenuItem(value: "기타", child: Text("기타")),
-                    ],
-                    onChanged: (val) {
-                      if (val != null) {
-                        setDialogState(() => selectedCategory = val);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 14),
-                  if (selectedCategory == "연차") ...[
-                    DropdownButtonFormField<String>(
-                      value: selectedLeaveTime,
-                      decoration: const InputDecoration(
-                          labelText: '연차 사용 시간', border: OutlineInputBorder()),
-                      items: timeOptions
-                          .map((time) =>
-                              DropdownMenuItem(value: time, child: Text(time)))
-                          .toList(),
-                      onChanged: (val) {
-                        if (val != null) {
-                          setDialogState(() => selectedLeaveTime = val);
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 14),
-                  ],
-                  if (selectedCategory == "기타") ...[
-                    TextField(
-                        controller: customNoteController,
-                        decoration: const InputDecoration(
-                            labelText: '기타 사유 입력 (필수)',
-                            border: OutlineInputBorder())),
-                    const SizedBox(height: 14),
-                  ],
-                  if (selectedCategory != "기타")
-                    TextField(
-                        controller: customNoteController,
-                        decoration: const InputDecoration(
-                            labelText: '비고/메모 (선택)',
-                            border: OutlineInputBorder())),
-                  if (requiresApproval) ...[
-                    const SizedBox(height: 14),
-                    TextField(
-                        controller: approvalReasonController,
-                        decoration: const InputDecoration(
-                            labelText: '3주 잠금기간 신청 사유 (필수)',
-                            border: OutlineInputBorder())),
-                  ],
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: requiresApproval
-                        ? Colors.deepOrange
-                        : const Color(0xFF1B365D)),
-                onPressed: () {
-                  if (selectedCategory == "기타" &&
-                      customNoteController.text.trim().isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('기타 사유를 입력해주세요.')));
-                    return;
-                  }
-                  if (requiresApproval &&
-                      approvalReasonController.text.trim().isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('신청 사유를 입력해주세요.')));
-                    return;
-                  }
-                  String details = (selectedCategory == "연차")
-                      ? "연차 ($selectedLeaveTime)"
-                      : ((selectedCategory == "기타")
-                          ? "기타 (${customNoteController.text.trim()})"
-                          : selectedCategory);
-                  if (selectedCategory != "기타" &&
-                      customNoteController.text.trim().isNotEmpty) {
-                    details += " - ${customNoteController.text.trim()}";
-                  }
-
-                  if (requiresApproval) {
-                    final req = {
-                      'id': DateTime.now().millisecondsSinceEpoch.toString(),
-                      'actionType': '신청요청',
-                      'date': dateKey,
-                      'empId': widget.employeeId,
-                      'empName': widget.userName,
-                      'type': selectedCategory,
-                      'content': details,
-                      'reason': approvalReasonController.text.trim(),
-                      'requestTime': DateTime.now().toString().substring(0, 16),
-                      'status': '대기중',
-                    };
-                    setState(() => globalApprovalRequests.insert(0, req));
-                    saveAllData();
-                    _sendWebNotification("⚡ [승인 요청] 3주 잠금기간 휴가/근무",
-                        "${widget.userName}님이 $dateKey '$details' 승인을 요청했습니다.");
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('관리자에게 승인 요청이 전송되었습니다.')));
-                  } else {
-                    final record = {
-                      'empId': widget.employeeId,
-                      'empName': widget.userName,
-                      'type': selectedCategory,
-                      'content': details
-                    };
-                    setState(() {
-                      globalScheduleMap
-                          .putIfAbsent(dateKey, () => [])
-                          .removeWhere((item) => item['empId'] == widget.employeeId);
-                      globalScheduleMap[dateKey]!.add(record);
-                    });
-                    saveAllData();
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('신청이 정상 등록되었습니다.')));
-                  }
-                },
-                child: Text(requiresApproval ? '승인 요청' : '즉시 신청',
-                    style: const TextStyle(color: Colors.white)),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-  }
-
-  Widget _buildGroupSection({
-    required String title,
-    required Color color,
-    required IconData icon,
-    required List<Map<String, String>> items,
-    required String selectedKey,
-    required bool isLockedThreeWeeks,
-  }) {
-    if (items.isEmpty) return const SizedBox.shrink();
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(9), topRight: Radius.circular(9))),
-            child: Row(
-              children: [
-                Icon(icon, size: 18, color: color),
-                const SizedBox(width: 8),
-                Text(title,
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: color)),
-                const Spacer(),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                      color: color, borderRadius: BorderRadius.circular(12)),
-                  child: Text('총 ${items.length}명',
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold)),
-                ),
-              ],
-            ),
-          ),
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: items.length,
-            separatorBuilder: (context, index) =>
-                Divider(height: 1, color: Colors.grey.shade200),
-            itemBuilder: (context, idx) {
-              final item = items[idx];
-              return ListTile(
-                dense: true,
-                leading: CircleAvatar(
-                  radius: 14,
-                  backgroundColor: color,
-                  child: Text(
-                      item['empName']!.isNotEmpty ? item['empName']![0] : 'U',
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold)),
-                ),
-                title: Text('${item['empName']} (${item['empId']})',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 13)),
-                subtitle: Text(item['content'] ?? '',
-                    style:
-                        TextStyle(fontSize: 12, color: Colors.grey.shade800)),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline,
-                      color: Colors.redAccent, size: 20),
-                  onPressed: () => _handleDeleteItem(
-                      selectedKey, item, isLockedThreeWeeks),
-                ),
-              );
-            },
-          ),
-        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final selectedKey =
-        _selectedDate != null ? _formatDateKey(_selectedDate!) : '';
-    final rawList = globalScheduleMap[selectedKey] ?? [];
-    final displayList = widget.isAdmin
-        ? rawList
-        : rawList.where((item) => item['empId'] == widget.employeeId).toList();
-    final myPendingList = globalApprovalRequests
-        .where((req) =>
-            req['date'] == selectedKey &&
-            (req['status'] == '대기중') &&
-            (widget.isAdmin || req['empId'] == widget.employeeId))
-        .toList();
-    final bool isPast =
-        _selectedDate != null ? _isPastDate(_selectedDate!) : false;
-    final bool isLockedThreeWeeks =
-        _selectedDate != null && _isWithinThreeWeeks(_selectedDate!);
-
-    final annualLeaveList =
-        displayList.where((i) => i['type'] == '연차').toList();
-    final healthTrainList =
-        displayList.where((i) => i['type'] == '체력단련').toList();
-    final familyLoveList =
-        displayList.where((i) => i['type'] == '가족사랑').toList();
-    final checkupList =
-        displayList.where((i) => i['type'] == '건강검진').toList();
-    final weekendList =
-        displayList.where((i) => i['type'] == '주말설정').toList();
-    final othersList = displayList
-        .where((i) =>
-            i['type'] != '연차' &&
-            i['type'] != '체력단련' &&
-            i['type'] != '가족사랑' &&
-            i['type'] != '건강검진' &&
-            i['type'] != '주말설정')
-        .toList();
+    final userShifts = globalShifts[widget.employeeId] ?? {};
 
     return Scaffold(
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            UserAccountsDrawerHeader(
-              decoration: BoxDecoration(
-                  color: widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D)),
-              accountName: Text(
-                  '${widget.userName} (${widget.isAdmin ? "관리자" : "사원"})',
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-              accountEmail: Text('사번: ${widget.employeeId}'),
-            ),
-            ListTile(
-                leading: const Icon(Icons.calendar_month),
-                title: const Text('근무 캘린더 (메인)'),
-                onTap: () => Navigator.pop(context)),
-            ListTile(
-                leading: const Icon(Icons.access_time_filled,
-                    color: Colors.blueAccent),
-                title: const Text('⏰ 근태기록 관리 및 조회'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _openAttendanceScreen();
-                }),
-            ListTile(
-                leading: const Icon(Icons.date_range, color: Colors.teal),
-                title: const Text('🌴 전체 연차/휴가자 월별 현황'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _openVacationMonthlyOverviewScreen();
-                }),
-            ListTile(
-                leading: const Icon(Icons.dynamic_feed, color: Colors.indigo),
-                title: const Text('게시판 / 근무표 보기'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _openBulletinScreen();
-                }),
-            if (widget.isAdmin) ...[
-              ListTile(
-                  leading: const Icon(Icons.notification_important,
-                      color: Colors.deepOrange),
-                  title: const Text('🚨 긴급승인 요청 및 이력'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _openEmergencyApprovalHistoryScreen();
-                  }),
-              ListTile(
-                  leading: const Icon(Icons.people_alt, color: Colors.indigo),
-                  title: const Text('전체 사원 신청 종합현황'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (c) => AllEmployeesOverviewScreen(
-                                scheduleMap: globalScheduleMap,
-                                onScheduleUpdated: () => setState(() {}))));
-                  }),
-            ],
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.logout, color: Colors.redAccent),
-              title: const Text('로그아웃',
-                  style: TextStyle(color: Colors.redAccent)),
-              onTap: () {
-                html.window.localStorage.remove('is_logged_in');
-                Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const LoginScreen()));
-              },
-            ),
-          ],
-        ),
-      ),
       appBar: AppBar(
-        title: Text('${widget.userName} (${widget.isAdmin ? "관리자" : "사원"})'),
-        backgroundColor: widget.isAdmin ? Colors.indigo : const Color(0xFF1B365D),
-        foregroundColor: Colors.white,
+        title: Text(
+          widget.isAdmin ? 'KT&G 근무관리 [관리자 모드]' : 'KT&G 근무관리 (${widget.userName} 님)',
+          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: const Color(0xFF1B365D),
         actions: [
           IconButton(
-              icon: _isSyncing
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.sync),
-              onPressed: _syncFromFirebase),
-          IconButton(
-              icon: const Icon(Icons.access_time_filled),
-              onPressed: _openAttendanceScreen),
-          if (widget.isAdmin)
-            IconButton(
-                icon: const Icon(Icons.notification_important),
-                onPressed: _openEmergencyApprovalHistoryScreen),
-          IconButton(
-              icon: const Icon(Icons.dynamic_feed),
-              onPressed: _openBulletinScreen),
-          IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: () {
-                html.window.localStorage.remove('is_logged_in');
-                Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const LoginScreen()));
-              }),
+            icon: const Icon(Icons.logout, color: Colors.white),
+            tooltip: '로그아웃',
+            onPressed: () {
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+              );
+            },
+          ),
         ],
       ),
+      // 관리자 모드일 때만 게시글 등록 플로팅 액션 버튼 노출 (복구 완료)
+      floatingActionButton: widget.isAdmin
+          ? FloatingActionButton.extended(
+              backgroundColor: const Color(0xFF1B365D),
+              icon: const Icon(Icons.edit, color: Colors.white),
+              label: const Text('게시글 등록', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              onPressed: _showCreatePostDialog,
+            )
+          : null,
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(12.0),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Card(
-              color: Colors.amber.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('📢 공지사항',
-                            style: TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.bold)),
-                        if (widget.isAdmin)
-                          IconButton(
-                              icon: const Icon(Icons.edit, size: 18),
-                              onPressed: _showEditNoticeDialog),
-                      ],
-                    ),
-                    Text(_notice,
-                        style: const TextStyle(fontSize: 13, height: 1.35)),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
+            // 상단 공지사항 및 게시글 영역
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                IconButton(
-                    icon: const Icon(Icons.chevron_left),
-                    onPressed: () => setState(() => _currentMonth =
-                        DateTime(_currentMonth.year, _currentMonth.month - 1, 1))),
-                Text('${_currentMonth.year}년 ${_currentMonth.month}월',
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold)),
-                IconButton(
-                    icon: const Icon(Icons.chevron_right),
-                    onPressed: () => setState(() => _currentMonth =
-                        DateTime(_currentMonth.year, _currentMonth.month + 1, 1))),
+                const Text(
+                  '📢 사내 공지 및 게시판',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B365D)),
+                ),
+                if (widget.isAdmin)
+                  TextButton.icon(
+                    onPressed: _showCreatePostDialog,
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('새 글 작성'),
+                  ),
               ],
             ),
-            const SizedBox(height: 6),
-            _buildCalendarGrid(),
+            const SizedBox(height: 8),
+            if (globalPosts.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12.0),
+                child: Text('등록된 공지사항이 없습니다.'),
+              )
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: globalPosts.length,
+                itemBuilder: (ctx, idx) {
+                  final post = globalPosts[idx];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: ListTile(
+                      title: Text(post['title'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text('${post['author']} | ${post['date']}\n${post['content']}'),
+                      isThreeLine: true,
+                    ),
+                  );
+                },
+              ),
+            const Divider(height: 36, thickness: 1.5),
+
+            // 캘린더 및 근무 등록 영역
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '📅 ${_focusedDate.year}년 ${_focusedDate.month}월 근무 일정',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B365D)),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _showAddShiftDialog(_focusedDate),
+                  icon: const Icon(Icons.access_time, size: 16),
+                  label: const Text('오늘 근태 등록'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1B365D),
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
+
+            // 간이 일정 뷰어 카드
             Card(
               elevation: 2,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: Padding(
-                padding: const EdgeInsets.all(14.0),
+                padding: const EdgeInsets.all(16.0),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                        widget.isAdmin
-                            ? '👥 $selectedKey 전체 사원 항목별 현황'
-                            : '📅 $selectedKey 내 신청',
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 12),
-                    ElevatedButton.icon(
-                      onPressed: isPast
-                          ? _showPastWorkRecordDialog
-                          : _showAddWorkDialog,
-                      icon: Icon(isPast ? Icons.edit_calendar : Icons.add_task),
-                      label: Text(isPast
-                          ? '지난 근무 기록'
-                          : (isLockedThreeWeeks && !widget.isAdmin
-                              ? '3주 잠금기간 긴급 승인 요청'
-                              : '근무 / 휴가 신청하기')),
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: isPast
-                              ? Colors.blueGrey
-                              : (isLockedThreeWeeks && !widget.isAdmin
-                                  ? Colors.deepOrange
-                                  : const Color(0xFF1B365D)),
-                          foregroundColor: Colors.white),
-                    ),
-                    const Divider(height: 24),
-                    if (widget.isAdmin) ...[
-                      _buildGroupSection(
-                          title: '🌴 연차 신청자',
-                          color: Colors.blue.shade700,
-                          icon: Icons.beach_access,
-                          items: annualLeaveList,
-                          selectedKey: selectedKey,
-                          isLockedThreeWeeks: isLockedThreeWeeks),
-                      _buildGroupSection(
-                          title: '❤️ 가족사랑의 날',
-                          color: Colors.purple.shade600,
-                          icon: Icons.family_restroom,
-                          items: familyLoveList,
-                          selectedKey: selectedKey,
-                          isLockedThreeWeeks: isLockedThreeWeeks),
-                      _buildGroupSection(
-                          title: '💪 체력단련 휴가',
-                          color: Colors.teal.shade700,
-                          icon: Icons.fitness_center,
-                          items: healthTrainList,
-                          selectedKey: selectedKey,
-                          isLockedThreeWeeks: isLockedThreeWeeks),
-                      _buildGroupSection(
-                          title: '🩺 건강검진',
-                          color: Colors.orange.shade800,
-                          icon: Icons.medical_services,
-                          items: checkupList,
-                          selectedKey: selectedKey,
-                          isLockedThreeWeeks: isLockedThreeWeeks),
-                      _buildGroupSection(
-                          title: '🗓️ 주말 근무/휴무 설정',
-                          color: Colors.indigo.shade700,
-                          icon: Icons.weekend,
-                          items: weekendList,
-                          selectedKey: selectedKey,
-                          isLockedThreeWeeks: isLockedThreeWeeks),
-                      _buildGroupSection(
-                          title: '📝 기타 사유 및 근무 기록',
-                          color: Colors.blueGrey.shade700,
-                          icon: Icons.history_edu,
-                          items: othersList,
-                          selectedKey: selectedKey,
-                          isLockedThreeWeeks: isLockedThreeWeeks),
-                    ] else ...[
-                      ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: displayList.length,
-                        itemBuilder: (ctx, idx) {
-                          final item = displayList[idx];
-                          return ListTile(
-                            title: Text(
-                                '[${item['empName']}] ${item['content']}',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w600)),
-                            subtitle: Text('구분: ${item['type']}'),
-                            trailing: IconButton(
-                                icon: const Icon(Icons.delete_outline,
-                                    color: Colors.redAccent),
-                                onPressed: () => _handleDeleteItem(
-                                    selectedKey, item, isLockedThreeWeeks)),
-                          );
-                        },
+                  children: List.generate(7, (index) {
+                    final day = DateTime.now().add(Duration(days: index));
+                    final dayStr = '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+                    final shift = userShifts[dayStr] ?? '미등록';
+
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: shift == '미등록' ? Colors.grey.shade200 : const Color(0xFF1B365D).withOpacity(0.1),
+                        child: Text('${day.day}', style: const TextStyle(fontWeight: FontWeight.bold)),
                       ),
-                    ],
-                  ],
+                      title: Text('$dayStr 근무'),
+                      trailing: Chip(
+                        label: Text(shift, style: TextStyle(color: shift == '미등록' ? Colors.grey : const Color(0xFF1B365D))),
+                      ),
+                      onTap: () => _showAddShiftDialog(day),
+                    );
+                  }),
                 ),
               ),
             ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildCalendarGrid() {
-    final firstDayOfMonth =
-        DateTime(_currentMonth.year, _currentMonth.month, 1);
-    final daysInMonth =
-        DateTime(_currentMonth.year, _currentMonth.month + 1, 0).day;
-    final startWeekday = firstDayOfMonth.weekday % 7;
-    final weekLabels = ['일', '월', '화', '수', '목', '금', '토'];
-
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade200)),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: weekLabels
-                .map((w) => Expanded(
-                    child: Center(
-                        child: Text(w,
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: w == '일'
-                                    ? Colors.red
-                                    : (w == '토'
-                                        ? Colors.blue
-                                        : Colors.black87))))))
-                .toList(),
-          ),
-          const Divider(height: 16),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 7, childAspectRatio: 1.1),
-            itemCount: startWeekday + daysInMonth,
-            itemBuilder: (context, index) {
-              if (index < startWeekday) return const SizedBox.shrink();
-              final dayNum = index - startWeekday + 1;
-              final cellDate = DateTime(
-                  _currentMonth.year, _currentMonth.month, dayNum);
-              final cellKey = _formatDateKey(cellDate);
-              final isSelected = _selectedDate != null &&
-                  _selectedDate!.year == cellDate.year &&
-                  _selectedDate!.month == cellDate.month &&
-                  _selectedDate!.day == cellDate.day;
-              final allList = globalScheduleMap[cellKey] ?? [];
-              final filteredList = widget.isAdmin
-                  ? allList
-                  : allList
-                      .where((item) => item['empId'] == widget.employeeId)
-                      .toList();
-              final isPast = _isPastDate(cellDate);
-
-              return InkWell(
-                onTap: () => setState(() => _selectedDate = cellDate),
-                child: Container(
-                  margin: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? const Color(0xFF1B365D).withOpacity(0.15)
-                        : (isPast ? Colors.grey.shade100 : Colors.transparent),
-                    border: isSelected
-                        ? Border.all(
-                            color: const Color(0xFF1B365D), width: 1.5)
-                        : null,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text('$dayNum',
-                          style: TextStyle(
-                              fontWeight: isSelected
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                              color: isPast
-                                  ? Colors.grey
-                                  : (cellDate.weekday == 7
-                                      ? Colors.red
-                                      : (cellDate.weekday == 6
-                                          ? Colors.blue
-                                          : Colors.black87)))),
-                      if (filteredList.isNotEmpty)
-                        Container(
-                          margin: const EdgeInsets.only(top: 2),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 4, vertical: 1),
-                          decoration: BoxDecoration(
-                              color: const Color(0xFFE35205),
-                              borderRadius: BorderRadius.circular(10)),
-                          child: Text(
-                              widget.isAdmin
-                                  ? '${filteredList.length}건'
-                                  : '●',
-                              style: const TextStyle(
-                                  fontSize: 8,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold)),
-                        ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// 4. 긴급승인 사용자 전용 카테고리
-class EmergencyApprovalHistoryScreen extends StatefulWidget {
-  final bool isAdmin;
-  final VoidCallback onUpdated;
-  final Function(String title, String body) sendNotification;
-
-  const EmergencyApprovalHistoryScreen(
-      {super.key,
-      required this.isAdmin,
-      required this.onUpdated,
-      required this.sendNotification});
-
-  @override
-  State<EmergencyApprovalHistoryScreen> createState() =>
-      _EmergencyApprovalHistoryScreenState();
-}
-
-class _EmergencyApprovalHistoryScreenState
-    extends State<EmergencyApprovalHistoryScreen> {
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-          title: const Text('🚨 긴급승인 요청 및 이력 관리'),
-          backgroundColor: Colors.deepOrange,
-          foregroundColor: Colors.white),
-      body: globalApprovalRequests.isEmpty
-          ? const Center(child: Text('승인 요청 내역이 없습니다.'))
-          : ListView.builder(
-              padding: const EdgeInsets.all(12),
-              itemCount: globalApprovalRequests.length,
-              itemBuilder: (ctx, idx) {
-                final req = globalApprovalRequests[idx];
-                final status = req['status'] ?? '대기중';
-                return Card(
-                  child: ListTile(
-                    title: Text(
-                        '${req['empName']} (${req['date']}) - [${req['actionType']}]'),
-                    subtitle: Text('${req['content']} | 사유: ${req['reason']}'),
-                    trailing: Text(status,
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: status == '승인완료'
-                                ? Colors.green
-                                : (status == '반려됨'
-                                    ? Colors.red
-                                    : Colors.orange))),
-                  ),
-                );
-              },
-            ),
-    );
-  }
-}
-
-// 5. 근태기록 카테고리 (주간/종일/오전/오후/야간)
-class AttendanceManagementScreen extends StatefulWidget {
-  final bool isAdmin;
-  final String currentUserName;
-  final String currentEmpId;
-  final VoidCallback onUpdated;
-
-  const AttendanceManagementScreen(
-      {super.key,
-      required this.isAdmin,
-      required this.currentUserName,
-      required this.currentEmpId,
-      required this.onUpdated});
-
-  @override
-  State<AttendanceManagementScreen> createState() =>
-      _AttendanceManagementScreenState();
-}
-
-class _AttendanceManagementScreenState
-    extends State<AttendanceManagementScreen> {
-  String _searchNameQuery = "";
-
-  void _openAddAttendanceDialog() {
-    final employeesInputController = TextEditingController();
-    final extraNoteController = TextEditingController();
-    DateTime startDate = DateTime.now();
-    DateTime endDate = DateTime.now();
-    String selectedShift = "주간";
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('⏰ 사원 근태기록 일괄 등록'),
-          content: SingleChildScrollView(
-            child: SizedBox(
-              width: 480,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                      controller: employeesInputController,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                          labelText: '사원 목록 (사번 성명 줄바꿈)',
-                          border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      ElevatedButton(
-                        onPressed: () {
-                          final now = DateTime.now();
-                          setDialogState(() {
-                            startDate = now;
-                            endDate = now;
-                            selectedShift = "주간";
-                          });
-                        },
-                        child: const Text('종일 (오늘 하루)'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: selectedShift,
-                    decoration: const InputDecoration(
-                        labelText: '근무 시간대 선택', border: OutlineInputBorder()),
-                    items: const [
-                      DropdownMenuItem(
-                          value: "주간",
-                          child: Text("주간 (08:30-17:30 / 주간근무)")),
-                      DropdownMenuItem(
-                          value: "종일",
-                          child: Text("종일 (08:00-17:00 / 전일근무)")),
-                      DropdownMenuItem(
-                          value: "오전", child: Text("오전 (07:00-15:00)")),
-                      DropdownMenuItem(
-                          value: "오후",
-                          child: Text("오후 (15:00-23:00 / OT 1)")),
-                      DropdownMenuItem(
-                          value: "야간",
-                          child: Text("야간 (23:00-07:00 / OT 7)")),
-                    ],
-                    onChanged: (val) {
-                      if (val != null) {
-                        setDialogState(() => selectedShift = val);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                      controller: extraNoteController,
-                      decoration: const InputDecoration(
-                          labelText: '기타 추가 근무 메모 (선택)',
-                          border: OutlineInputBorder())),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
-            ElevatedButton(
-              onPressed: () {
-                final rawInput = employeesInputController.text.trim();
-                final note = extraNoteController.text.trim();
-                if (rawInput.isEmpty) return;
-
-                final lines = rawInput.split(RegExp(r'[\r\n,]+'));
-                final List<Map<String, dynamic>> newEntries = [];
-                DateTime cur =
-                    DateTime(startDate.year, startDate.month, startDate.day);
-                final endLimit =
-                    DateTime(endDate.year, endDate.month, endDate.day);
-                int counter = 0;
-
-                while (!cur.isAfter(endLimit)) {
-                  final isWeekendDay = cur.weekday == DateTime.saturday ||
-                      cur.weekday == DateTime.sunday;
-                  final dateKey =
-                      "${cur.year}-${cur.month.toString().padLeft(2, '0')}-${cur.day.toString().padLeft(2, '0')}";
-                  final actualShift = isWeekendDay ? "주말" : selectedShift;
-                  final actualShiftDetail =
-                      isWeekendDay ? "주말근무" : "$selectedShift 근무";
-
-                  for (var line in lines) {
-                    final tokens = line.trim().split(RegExp(r'\s+'));
-                    if (tokens.isNotEmpty && tokens[0].isNotEmpty) {
-                      final empId = tokens[0];
-                      final name = tokens.length > 1
-                          ? tokens.sublist(1).join(' ')
-                          : tokens[0];
-                      newEntries.add({
-                        'id':
-                            "${DateTime.now().millisecondsSinceEpoch}_${counter++}",
-                        'empId': empId,
-                        'name': name,
-                        'date': dateKey,
-                        'shift': actualShift,
-                        'shiftDetail': actualShiftDetail,
-                        'extraNote': note,
-                      });
-                    }
-                  }
-                  cur = cur.add(const Duration(days: 1));
-                }
-
-                setState(() => globalAttendanceRecords.addAll(newEntries));
-                saveAllData();
-                widget.onUpdated();
-                Navigator.pop(ctx);
-              },
-              child: const Text('등록'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    List<Map<String, dynamic>> records = List.from(globalAttendanceRecords);
-    if (_searchNameQuery.isNotEmpty) {
-      records = records
-          .where((r) =>
-              (r['name'] ?? '').toString().contains(_searchNameQuery) ||
-              (r['empId'] ?? '').toString().contains(_searchNameQuery))
-          .toList();
-    }
-    return Scaffold(
-      appBar: AppBar(
-          title: const Text('⏰ 근태기록 관리 및 조회'),
-          backgroundColor: Colors.blueAccent,
-          foregroundColor: Colors.white),
-      floatingActionButton: widget.isAdmin
-          ? FloatingActionButton(
-              onPressed: _openAddAttendanceDialog,
-              child: const Icon(Icons.add))
-          : null,
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: TextField(
-              decoration: const InputDecoration(
-                  hintText: '사원 이름/사번 검색...',
-                  prefixIcon: Icon(Icons.search),
-                  border: OutlineInputBorder()),
-              onChanged: (val) => setState(() => _searchNameQuery = val.trim()),
-            ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              itemCount: records.length,
-              itemBuilder: (ctx, idx) {
-                final r = records[idx];
-                return Card(
-                  child: ListTile(
-                    title: Text('${r['name']} (${r['empId']}) - ${r['date']}'),
-                    subtitle: Text(
-                        '${r['shiftDetail']} | 메모: ${r['extraNote']}',
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// 6. 월별 휴가자 타임라인 리스트 화면
-class MonthlyVacationListScreen extends StatelessWidget {
-  final Map<String, List<Map<String, String>>> scheduleMap;
-  const MonthlyVacationListScreen({super.key, required this.scheduleMap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-          title: const Text('🌴 전체 연차/휴가자 월별 현황'),
-          backgroundColor: Colors.teal,
-          foregroundColor: Colors.white),
-      body: const Center(child: Text('월별 휴가 현황 타임라인')),
-    );
-  }
-}
-
-// 7. 게시판 & 근무표
-class BulletinBoardScreen extends StatelessWidget {
-  final bool isAdmin;
-  final String userName;
-  final List<Map<String, dynamic>> posts;
-  final Function(List<Map<String, dynamic>>) onPostsUpdated;
-  final Function(String, String) sendNotification;
-
-  const BulletinBoardScreen(
-      {super.key,
-      required this.isAdmin,
-      required this.userName,
-      required this.posts,
-      required this.onPostsUpdated,
-      required this.sendNotification});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-          title: const Text('📋 게시판 & 근무표'),
-          backgroundColor: const Color(0xFF1B365D),
-          foregroundColor: Colors.white),
-      body: const Center(child: Text('게시판 목록')),
-    );
-  }
-}
-
-// 8. 전체 사원 종합 현황
-class AllEmployeesOverviewScreen extends StatelessWidget {
-  final Map<String, List<Map<String, String>>> scheduleMap;
-  final VoidCallback onScheduleUpdated;
-  const AllEmployeesOverviewScreen(
-      {super.key,
-      required this.scheduleMap,
-      required this.onScheduleUpdated});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-          title: const Text('👥 전체 사원 종합 현황'),
-          backgroundColor: Colors.teal,
-          foregroundColor: Colors.white),
-      body: const Center(child: Text('전체 사원 신청 종합 현황표')),
     );
   }
 }
